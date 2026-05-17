@@ -305,8 +305,11 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
 .corridor-flow{animation:dash-flow 2s linear infinite}
 
 /* SPARKLINES */
-.spark-svg{display:inline-block;width:52px;height:18px;vertical-align:middle;margin-left:4px}
-.spark-line{fill:none;stroke-width:1.5;stroke-linecap:round}
+.spark-svg{display:block;width:100%;height:26px;margin-top:4px;overflow:visible}
+.spark-line{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.spark-fill{stroke:none;opacity:0.18}
+.spark-fill.spark-good{fill:var(--accent)}
+.spark-fill.spark-bad{fill:var(--danger)}
 .spark-good{stroke:var(--accent)}
 .spark-bad{stroke:var(--danger)}
 .spark-dot{r:2}
@@ -1317,20 +1320,27 @@ function mapZoom(factor){
   }
 }
 
-// Sparkline SVG generator
+// Sparkline SVG generator. Uses a fixed viewBox that the SVG scales to fit
+// the parent tile, so the line stretches across the full available width.
 function mkSparkSvg(values, isGood){
   if(!values || values.length < 2) return '';
-  const w=52, h=18, pad=2;
+  const w=120, h=26, pad=2;
   const min=Math.min(...values), max=Math.max(...values);
   const range=max-min||1;
   const pts=values.map((v,i)=>{
     const x=pad+(i/(values.length-1))*(w-pad*2);
     const y=pad+((max-v)/range)*(h-pad*2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
+    return [x, y];
   });
   const cls=isGood?'spark-good':'spark-bad';
+  const linePts=pts.map(p=>`${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const fillPts=`${pad},${h} ${linePts} ${w-pad},${h}`;
   const last=pts[pts.length-1];
-  return `<svg class="spark-svg" viewBox="0 0 ${w} ${h}"><polyline class="spark-line ${cls}" points="${pts.join(' ')}"/><circle class="${cls} spark-dot" cx="${last.split(',')[0]}" cy="${last.split(',')[1]}" r="2" fill="${isGood?'var(--accent)':'var(--danger)'}"/></svg>`;
+  return `<svg class="spark-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`+
+    `<polygon class="spark-fill ${cls}" points="${fillPts}"/>`+
+    `<polyline class="spark-line ${cls}" points="${linePts}"/>`+
+    `<circle class="spark-dot" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2" fill="${isGood?'var(--accent)':'var(--danger)'}"/>`+
+    `</svg>`;
 }
 
 // === LOWER GRID ===
@@ -1352,8 +1362,10 @@ function renderLower(){
     silver: silverQ?.price ?? null,
     goldChangePct: goldQ?.changePct ?? null,
     silverChangePct: silverQ?.changePct ?? null,
-    goldRecent: goldQ?.history || [],
-    silverRecent: silverQ?.history || []
+    // YFinance returns history as [{date, close}, ...] — flatten to plain
+    // numbers so mkSparkSvg's Math.min/max work correctly.
+    goldRecent: (goldQ?.history || []).map(h => typeof h === 'number' ? h : h?.close).filter(v => v != null),
+    silverRecent: (silverQ?.history || []).map(h => typeof h === 'number' ? h : h?.close).filter(v => v != null),
   };
 
   const wtiH = D.energy.wtiRecent||[];
