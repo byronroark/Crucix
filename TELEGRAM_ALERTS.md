@@ -36,19 +36,23 @@ flowchart LR
   dedupe --> telegram[Telegram Bot API]
 ```
 
+
+
 The pipeline lives in [server.mjs](server.mjs) (sweep loop) and [lib/alerts/telegram.mjs](lib/alerts/telegram.mjs) (evaluator + dedup + bot polling).
 
 ---
 
 ## Alert tiers
 
-| Tier         | Emoji | Cooldown | Cap/hr | Fires when                                                                            |
-| ------------ | ----- | -------- | ------ | ------------------------------------------------------------------------------------- |
-| **FLASH**    | red   | 5 min    | 6      | Nuclear/radiological anomaly, or >=2 critical signals across market + conflict        |
-| **PRIORITY** | yellow| 30 min   | 4      | >=2 high/critical signals escalating in the same direction, or OSINT surge (>=5 new)  |
-| **ROUTINE**  | blue  | 60 min   | 2      | Any single critical signal, or >=3 high-severity signals                              |
 
-Defined in [`TIER_CONFIG`](lib/alerts/telegram.mjs) (~line 15). The same file holds the rule-based fallback (`_ruleBasedEvaluation`) that fires when the LLM is unavailable.
+| Tier         | Emoji  | Cooldown | Cap/hr | Fires when                                                                           |
+| ------------ | ------ | -------- | ------ | ------------------------------------------------------------------------------------ |
+| **FLASH**    | red    | 5 min    | 6      | Nuclear/radiological anomaly, or >=2 critical signals across market + conflict       |
+| **PRIORITY** | yellow | 30 min   | 4      | >=2 high/critical signals escalating in the same direction, or OSINT surge (>=5 new) |
+| **ROUTINE**  | blue   | 60 min   | 2      | Any single critical signal, or >=3 high-severity signals                             |
+
+
+Defined in `[TIER_CONFIG](lib/alerts/telegram.mjs)` (~line 15). The same file holds the rule-based fallback (`_ruleBasedEvaluation`) that fires when the LLM is unavailable.
 
 On top of the cooldowns, every alert is deduped against the last 4 hours of message content using a normalized SHA-256 hash, so near-duplicates (same headline, slightly different numbers) won't fire twice.
 
@@ -60,27 +64,29 @@ The [delta engine](lib/delta/engine.mjs) compares each new sweep against the pre
 
 ### Default thresholds
 
-| Metric              | Threshold        | Source                |
-| ------------------- | ---------------- | --------------------- |
-| VIX                 | +/- 5%           | FRED VIXCLS           |
-| HY spread           | +/- 5%           | FRED BAMLH0A0HYM2     |
-| 10y-2y spread       | +/- 10%          | FRED T10Y2Y           |
-| WTI / Brent crude   | +/- 3%           | EIA / Yahoo Finance   |
-| Natural gas         | +/- 5%           | EIA / Yahoo Finance   |
-| Gold                | +/- 2%           | Yahoo Finance         |
-| Silver              | +/- 3%           | Yahoo Finance         |
-| Unemployment        | +/- 2%           | BLS                   |
-| Fed funds           | +/- 1%           | FRED DFF              |
-| 10y yield           | +/- 3%           | FRED DGS10            |
-| USD index           | +/- 1%           | FRED DTWEXBGS         |
-| 30y mortgage        | +/- 2%           | FRED MORTGAGE30US     |
-| Urgent OSINT posts  | +/- 2 posts      | Telegram channels     |
-| Thermal detections  | +/- 500          | NASA FIRMS            |
-| Aircraft tracked    | +/- 50           | OpenSky               |
-| WHO alerts          | +/- 1            | WHO ProMED            |
-| ACLED conflict evts | +/- 5            | ACLED                 |
-| ACLED fatalities    | +/- 10           | ACLED                 |
-| News items          | +/- 5            | RSS / GDELT           |
+
+| Metric              | Threshold   | Source              |
+| ------------------- | ----------- | ------------------- |
+| VIX                 | +/- 5%      | FRED VIXCLS         |
+| HY spread           | +/- 5%      | FRED BAMLH0A0HYM2   |
+| 10y-2y spread       | +/- 10%     | FRED T10Y2Y         |
+| WTI / Brent crude   | +/- 3%      | EIA / Yahoo Finance |
+| Natural gas         | +/- 5%      | EIA / Yahoo Finance |
+| Gold                | +/- 2%      | Yahoo Finance       |
+| Silver              | +/- 3%      | Yahoo Finance       |
+| Unemployment        | +/- 2%      | BLS                 |
+| Fed funds           | +/- 1%      | FRED DFF            |
+| 10y yield           | +/- 3%      | FRED DGS10          |
+| USD index           | +/- 1%      | FRED DTWEXBGS       |
+| 30y mortgage        | +/- 2%      | FRED MORTGAGE30US   |
+| Urgent OSINT posts  | +/- 2 posts | Telegram channels   |
+| Thermal detections  | +/- 500     | NASA FIRMS          |
+| Aircraft tracked    | +/- 50      | OpenSky             |
+| WHO alerts          | +/- 1       | WHO ProMED          |
+| ACLED conflict evts | +/- 5       | ACLED               |
+| ACLED fatalities    | +/- 10      | ACLED               |
+| News items          | +/- 5       | RSS / GDELT         |
+
 
 Severity ladder: a single threshold breach is `moderate`; >=2x threshold is `high`; >=3x is `critical`. Numeric moves above 10% always count toward `criticalChanges`.
 
@@ -89,6 +95,7 @@ Severity ladder: a single threshold breach is `moderate`; >=2x threshold is `hig
 ## Bot commands
 
 Tap the bot's menu or type any of these into the chat. Commands are case-insensitive.
+
 
 | Command         | What it does                                                              |
 | --------------- | ------------------------------------------------------------------------- |
@@ -100,7 +107,9 @@ Tap the bot's menu or type any of these into the chat. Commands are case-insensi
 | `/unmute`       | Resume reactive alerts                                                    |
 | `/help`         | Print this command list                                                   |
 
+
 Notes:
+
 - `/mute` only silences **reactive** alerts. The scheduled daily brief still fires unless you set `TELEGRAM_DAILY_BRIEF_RESPECT_MUTE=true`.
 - Commands only work from your configured `TELEGRAM_CHAT_ID`; messages from any other chat are ignored.
 
@@ -156,6 +165,7 @@ Implementation lives in `scheduleDailyBrief()` in [server.mjs](server.mjs). It u
 The balanced defaults are reasonable for a "background monitor" use case. After a week of live data you'll know whether you want to dial them.
 
 Rough expectations with default thresholds:
+
 - **FLASH:** rare. Only fires on genuine emergencies (nuclear anomaly, multi-domain critical event). Expect 0-1 per week, mostly during active geopolitical incidents.
 - **PRIORITY:** ~1-3 per week. Fires on real market dislocations or coordinated OSINT surges.
 - **ROUTINE:** ~5-15 per week. Includes notable single-domain moves like VIX > 5% or unemployment shifts.
@@ -234,6 +244,7 @@ Set `maxPerHour: 0` for that tier. Useful if you only want PRIORITY+ and don't c
 ## Troubleshooting
 
 **Bot is silent and `/status` doesn't respond.**
+
 1. Check the server is up: `docker compose ps` should show `crucix-crucix-1` as Up.
 2. Check the logs for `[Telegram] Bot command polling started`. If missing, your token is wrong.
 3. Run `npm run test:telegram` — if that fails, the bot token or chat ID is wrong.
@@ -245,6 +256,7 @@ This is expected during low-activity periods. To force a sweep, type `/sweep` in
 Non-fatal — the system falls back to the rule-based evaluator (`_ruleBasedEvaluation` in [lib/alerts/telegram.mjs](lib/alerts/telegram.mjs)). Fix by either correcting `LLM_API_KEY` or accepting that all alerts will be rule-based.
 
 **Daily brief never fires.**
+
 1. Check log line `[Crucix] Daily brief scheduled for HH:MM (...) — first fire at ...` on startup.
 2. Verify the time format is `HH:MM` (24-hour, zero-padded).
 3. Verify `TELEGRAM_DAILY_BRIEF_TZ` is a valid IANA name (e.g. `America/New_York`, not `EST`).
@@ -257,14 +269,16 @@ That's the semantic-dedup window expiring after 4 hours. If you want longer, cha
 
 ## Files involved
 
-| File                                                    | Role                                                       |
-| ------------------------------------------------------- | ---------------------------------------------------------- |
-| [lib/alerts/telegram.mjs](lib/alerts/telegram.mjs)      | `TelegramAlerter` class: evaluator, dedup, bot polling     |
-| [lib/delta/engine.mjs](lib/delta/engine.mjs)            | `computeDelta`: produces the signals the alerter evaluates |
-| [server.mjs](server.mjs)                                | Wires alerter into sweep loop, registers commands, daily brief scheduler |
-| [crucix.config.mjs](crucix.config.mjs)                  | Reads env vars into `config.telegram` and `config.delta`   |
-| [scripts/test-telegram.mjs](scripts/test-telegram.mjs)  | `npm run test:telegram` manual test sender                 |
-| [.env](.env)                                            | Bot token, chat ID, daily-brief settings (gitignored)      |
+
+| File                                                   | Role                                                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| [lib/alerts/telegram.mjs](lib/alerts/telegram.mjs)     | `TelegramAlerter` class: evaluator, dedup, bot polling                   |
+| [lib/delta/engine.mjs](lib/delta/engine.mjs)           | `computeDelta`: produces the signals the alerter evaluates               |
+| [server.mjs](server.mjs)                               | Wires alerter into sweep loop, registers commands, daily brief scheduler |
+| [crucix.config.mjs](crucix.config.mjs)                 | Reads env vars into `config.telegram` and `config.delta`                 |
+| [scripts/test-telegram.mjs](scripts/test-telegram.mjs) | `npm run test:telegram` manual test sender                               |
+| [.env](.env)                                           | Bot token, chat ID, daily-brief settings (gitignored)                    |
+
 
 ---
 
