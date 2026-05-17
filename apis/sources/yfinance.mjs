@@ -25,6 +25,7 @@ const SYMBOLS = {
   'NG=F': 'Natural Gas',
   // Crypto
   'BTC-USD': 'Bitcoin',
+  'XRP-USD': 'XRP',
   'ETH-USD': 'Ethereum',
   // Volatility
   '^VIX': 'VIX',
@@ -120,7 +121,7 @@ export async function collect() {
     indexes: pickGroup(quotes, ['^GSPC', '^IXIC', '^DJI', '^RUT']),
     rates: pickGroup(quotes, ['TLT', 'HYG', 'LQD']),
     commodities: pickGroup(quotes, ['GC=F', 'SI=F', 'CL=F', 'BZ=F', 'NG=F']),
-    crypto: pickGroup(quotes, ['BTC-USD', 'ETH-USD']),
+    crypto: pickGroup(quotes, ['BTC-USD', 'XRP-USD', 'ETH-USD']),
     volatility: pickGroup(quotes, ['^VIX']),
   };
 }

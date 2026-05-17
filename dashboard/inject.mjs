@@ -547,6 +547,9 @@ export async function synthesize(data) {
   const yfData = data.sources.YFinance || {};
   const yfQuotes = yfData.quotes || {};
   const markets = {
+    // Raw symbol-keyed map so the dashboard can look up specific tickers
+    // (e.g. GC=F, SI=F for the Gold/Silver tiles).
+    quotes: yfQuotes,
     indexes: (yfData.indexes || []).map(q => ({
       symbol: q.symbol, name: q.name, price: q.price,
       change: q.change, changePct: q.changePct, history: q.history || []

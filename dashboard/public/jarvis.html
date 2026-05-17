@@ -1343,7 +1343,18 @@ function renderLower(){
   const payrolls=D.bls.find(b=>b.id==='CES0000000001');
   const gscpi=D.gscpi;
   const mkt=D.markets||{};
-  const metals=D.metals||{};
+  const quotes = D.markets?.quotes || {};
+  const goldQ = quotes['GC=F'];
+  const silverQ = quotes['SI=F'];
+
+  const metals = {
+    gold: goldQ?.price ?? null,
+    silver: silverQ?.price ?? null,
+    goldChangePct: goldQ?.changePct ?? null,
+    silverChangePct: silverQ?.changePct ?? null,
+    goldRecent: goldQ?.history || [],
+    silverRecent: silverQ?.history || []
+  };
 
   const wtiH = D.energy.wtiRecent||[];
   const wtiMax=Math.max(...wtiH),wtiMin=Math.min(...wtiH);
@@ -1357,7 +1368,7 @@ function renderLower(){
     if(!q||q.error) return '';
     const clr = q.changePct>=0?'var(--accent)':'var(--warn)';
     const arrow = q.changePct>=0?'&#9650;':'&#9660;';
-    const isCrypto = q.symbol.includes('BTC') || q.symbol.includes('ETH');
+    const isCrypto = q.symbol.includes('BTC') || q.symbol.includes('ETH') || q.symbol.includes('XRP');
     const isIndex = q.symbol.startsWith('^');
     const price = isCrypto
       ? `$${q.price.toLocaleString()}`
@@ -1763,17 +1774,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const hasInlineData = !!(D && D.meta);
   const canProbeApi = location.protocol !== 'file:';
 
-  if (canProbeApi && !hasInlineData) {
-    // Server mode: always fetch live data from API (ignore any stale inline D)
+  if (canProbeApi) {
+    // Server mode: always fetch live data from API, ignoring the inline
+    // placeholder snapshot baked into the HTML (which is only meant as a
+    // file:// fallback). Without this, the dashboard would silently render
+    // stale data forever.
     fetch('/api/data')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error('api/data ' + r.status);
+        return r.json();
+      })
       .then(data => { D = data; init(); connectSSE(); })
-      .catch(() => {
-        // Should not reach here — server routes to loading.html when no data
-        if (D && D.meta) { init(); connectSSE(); }
+      .catch(err => {
+        console.warn('[Crucix] /api/data fetch failed, falling back to inline snapshot:', err);
+        if (hasInlineData) { init(); connectSSE(); }
       });
   } else if (hasInlineData) {
-    // File mode: use inline data
+    // File mode (opened directly via file://): use the inline snapshot.
     init();
   }
 });
