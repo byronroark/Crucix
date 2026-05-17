@@ -18,6 +18,13 @@ export default {
     chatId: process.env.TELEGRAM_CHAT_ID || null,
     botPollingInterval: parseInt(process.env.TELEGRAM_POLL_INTERVAL) || 5000,
     channels: process.env.TELEGRAM_CHANNELS || null, // Comma-separated extra channel IDs
+    // Daily summary at a fixed local time ("HH:MM", 24h). Leave null to disable.
+    dailyBriefTime: process.env.TELEGRAM_DAILY_BRIEF_TIME || null,
+    // Optional IANA timezone (e.g. "America/New_York"). Defaults to system local.
+    dailyBriefTz: process.env.TELEGRAM_DAILY_BRIEF_TZ || null,
+    // Whether /mute should also silence the scheduled daily brief.
+    // Default: false — the brief is a digest, not an alert, so it bypasses mute.
+    dailyBriefRespectMute: process.env.TELEGRAM_DAILY_BRIEF_RESPECT_MUTE === 'true',
   },
 
   discord: {
@@ -28,7 +35,17 @@ export default {
   },
 
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
-  // Set to null to use built-in defaults
+  // Set to null to use built-in defaults.
+  //
+  // Built-in defaults (lib/delta/engine.mjs):
+  //   numeric: vix 5, hy_spread 5, 10y2y 10, wti 3, brent 3, natgas 5,
+  //            gold 2, silver 3, unemployment 2, fed_funds 1,
+  //            10y_yield 3, usd_index 1, mortgage 2 (all in %)
+  //   count:   urgent_posts 2, thermal_total 500, air_total 50,
+  //            who_alerts 1, conflict_events 5, conflict_fatalities 10,
+  //            sdr_online 3, news_count 5, sources_ok 1
+  //
+  // See TELEGRAM_ALERTS.md for "Quieter" and "Wider net" preset blocks.
   delta: {
     thresholds: {
       numeric: {

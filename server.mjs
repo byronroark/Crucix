@@ -43,6 +43,68 @@ const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
 const discordAlerter = new DiscordAlerter(config.discord || {});
 
+/**
+ * Build the markdown body for a Crucix brief. Shared by the /brief Telegram
+ * command, the Discord /brief command, and the scheduled daily brief so all
+ * three render identical content.
+ *
+ * @param {object} [opts]
+ * @param {'telegram'|'discord'} [opts.flavor] - tweak headline formatting
+ * @param {string} [opts.title] - optional override (e.g. "CRUCIX DAILY BRIEF")
+ * @returns {string|null} markdown body, or null if no data yet
+ */
+function buildBriefBody({ flavor = 'telegram', title } = {}) {
+  if (!currentData) return null;
+
+  const tg = currentData.tg || {};
+  const energy = currentData.energy || {};
+  const metals = currentData.metals || {};
+  const delta = memory.getLastDelta();
+  const ideas = (currentData.ideas || []).slice(0, 3);
+  const isDiscord = flavor === 'discord';
+  const bold = (s) => (isDiscord ? `**${s}**` : `*${s}*`);
+  const italic = (s) => (isDiscord ? `_${s}_` : `_${s}_`);
+
+  const sections = [
+    `${bold(`\u{1F4CB} ${title || 'CRUCIX BRIEF'}`)}`,
+    `${italic(`${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC`)}`,
+    ``,
+  ];
+
+  if (delta?.summary) {
+    const dirEmoji = { 'risk-off': '\u{1F4C9}', 'risk-on': '\u{1F4C8}', 'mixed': '\u2194\uFE0F' }[delta.summary.direction] || '\u2194\uFE0F';
+    sections.push(`${dirEmoji} Direction: ${bold(delta.summary.direction.toUpperCase())} | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical`);
+    sections.push('');
+  }
+
+  const vix = currentData.fred?.find(f => f.id === 'VIXCLS');
+  const hy = currentData.fred?.find(f => f.id === 'BAMLH0A0HYM2');
+  if (vix || energy.wti || metals.gold || metals.silver) {
+    sections.push(`\u{1F4CA} VIX: ${vix?.value ?? '--'} | WTI: $${energy.wti ?? '--'} | Brent: $${energy.brent ?? '--'}`);
+    sections.push(`   Gold: $${metals.gold ?? '--'} | Silver: $${metals.silver ?? '--'}${hy ? ` | HY Spread: ${hy.value}` : ''}`);
+    sections.push(`   NatGas: $${energy.natgas ?? '--'}`);
+    sections.push('');
+  }
+
+  if (tg.urgent?.length > 0) {
+    sections.push(`\u{1F4E1} OSINT: ${tg.urgent.length} urgent signals, ${tg.posts || 0} total posts`);
+    for (const p of tg.urgent.slice(0, 2)) {
+      sections.push(`  \u2022 ${(p.text || '').substring(0, 80)}`);
+    }
+    sections.push('');
+  }
+
+  if (ideas.length > 0) {
+    sections.push(`${bold('\u{1F4A1} Top Ideas:')}`);
+    for (const idea of ideas) {
+      const ico = idea.type === 'long' ? '\u{1F4C8}' : idea.type === 'hedge' ? '\u{1F6E1}\uFE0F' : '\u{1F441}\uFE0F';
+      sections.push(`  ${ico} ${idea.title}`);
+    }
+  }
+
+  return sections.join('\n');
+}
+
 if (llmProvider) console.log(`[Crucix] LLM enabled: ${llmProvider.name} (${llmProvider.model})`);
 if (telegramAlerter.isConfigured) {
   console.log('[Crucix] Telegram alerts enabled');
@@ -83,56 +145,8 @@ if (telegramAlerter.isConfigured) {
   });
 
   telegramAlerter.onCommand('/brief', async () => {
-    if (!currentData) return '⏳ No data yet — waiting for first sweep to complete.';
-
-    const tg = currentData.tg || {};
-    const energy = currentData.energy || {};
-    const metals = currentData.metals || {};
-    const delta = memory.getLastDelta();
-    const ideas = (currentData.ideas || []).slice(0, 3);
-
-    const sections = [
-      `📋 *CRUCIX BRIEF*`,
-      `_${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC_`,
-      ``,
-    ];
-
-    // Delta direction
-    if (delta?.summary) {
-      const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
-      sections.push(`${dirEmoji} Direction: *${delta.summary.direction.toUpperCase()}* | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical`);
-      sections.push('');
-    }
-
-    // Key metrics
-    const vix = currentData.fred?.find(f => f.id === 'VIXCLS');
-    const hy = currentData.fred?.find(f => f.id === 'BAMLH0A0HYM2');
-    if (vix || energy.wti || metals.gold || metals.silver) {
-      sections.push(`📊 VIX: ${vix?.value || '--'} | WTI: $${energy.wti || '--'} | Brent: $${energy.brent || '--'}`);
-      sections.push(`   Gold: $${metals.gold || '--'} | Silver: $${metals.silver || '--'}${hy ? ` | HY Spread: ${hy.value}` : ''}`);
-      sections.push(`   NatGas: $${energy.natgas || '--'}`);
-      sections.push('');
-    }
-
-    // OSINT
-    if (tg.urgent?.length > 0) {
-      sections.push(`📡 OSINT: ${tg.urgent.length} urgent signals, ${tg.posts || 0} total posts`);
-      // Top 2 urgent
-      for (const p of tg.urgent.slice(0, 2)) {
-        sections.push(`  • ${(p.text || '').substring(0, 80)}`);
-      }
-      sections.push('');
-    }
-
-    // Top ideas
-    if (ideas.length > 0) {
-      sections.push(`💡 *Top Ideas:*`);
-      for (const idea of ideas) {
-        sections.push(`  ${idea.type === 'long' ? '📈' : idea.type === 'hedge' ? '🛡️' : '👁️'} ${idea.title}`);
-      }
-    }
-
-    return sections.join('\n');
+    return buildBriefBody({ flavor: 'telegram' })
+      ?? '⏳ No data yet — waiting for first sweep to complete.';
   });
 
   telegramAlerter.onCommand('/portfolio', async () => {
@@ -141,6 +155,89 @@ if (telegramAlerter.isConfigured) {
 
   // Start polling for bot commands
   telegramAlerter.startPolling(config.telegram.botPollingInterval);
+
+  // Schedule the optional daily brief (no-op if TELEGRAM_DAILY_BRIEF_TIME unset)
+  scheduleDailyBrief();
+}
+
+/**
+ * Schedule a once-daily Telegram brief at config.telegram.dailyBriefTime ("HH:MM").
+ * Uses setTimeout for the first fire and a 24h setInterval thereafter. Honors
+ * config.telegram.dailyBriefTz (IANA tz) when provided. Bypasses tier rate limits
+ * because a daily digest is not an alert; honors /mute only if dailyBriefRespectMute=true.
+ */
+function scheduleDailyBrief() {
+  const timeStr = config.telegram.dailyBriefTime;
+  if (!timeStr) return;
+  if (!telegramAlerter.isConfigured) return;
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeStr.trim());
+  if (!match) {
+    console.warn(`[Crucix] Invalid TELEGRAM_DAILY_BRIEF_TIME "${timeStr}" — expected HH:MM. Disabling daily brief.`);
+    return;
+  }
+  const hh = parseInt(match[1], 10);
+  const mm = parseInt(match[2], 10);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    console.warn(`[Crucix] TELEGRAM_DAILY_BRIEF_TIME "${timeStr}" out of range. Disabling daily brief.`);
+    return;
+  }
+
+  const tz = config.telegram.dailyBriefTz || undefined;
+
+  const msUntilNextRun = () => {
+    const now = new Date();
+    // Compute the current wall-clock time in the target timezone using Intl.
+    let nowH, nowM, nowS;
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+      }).formatToParts(now);
+      const get = (t) => parseInt(parts.find(p => p.type === t)?.value || '0', 10);
+      nowH = get('hour') % 24; nowM = get('minute'); nowS = get('second');
+    } catch {
+      console.warn(`[Crucix] Invalid TELEGRAM_DAILY_BRIEF_TZ "${tz}" — falling back to system timezone.`);
+      nowH = now.getHours(); nowM = now.getMinutes(); nowS = now.getSeconds();
+    }
+    const nowSec = nowH * 3600 + nowM * 60 + nowS;
+    const targetSec = hh * 3600 + mm * 60;
+    let deltaSec = targetSec - nowSec;
+    if (deltaSec <= 0) deltaSec += 24 * 3600;
+    return deltaSec * 1000;
+  };
+
+  const fire = async () => {
+    try {
+      if (config.telegram.dailyBriefRespectMute && telegramAlerter._isMuted?.()) {
+        console.log('[Crucix] Daily brief suppressed (muted)');
+        return;
+      }
+      const body = buildBriefBody({ flavor: 'telegram', title: 'CRUCIX DAILY BRIEF' });
+      if (!body) {
+        console.log('[Crucix] Daily brief skipped — no sweep data yet');
+        return;
+      }
+      const result = await telegramAlerter.sendMessage(body);
+      console.log(result.ok ? '[Crucix] Daily brief sent' : '[Crucix] Daily brief send failed');
+    } catch (err) {
+      console.error('[Crucix] Daily brief error:', err.message);
+    }
+  };
+
+  const firstDelay = msUntilNextRun();
+  const tzLabel = tz ? ` (${tz})` : '';
+  const firstFireAt = new Date(Date.now() + firstDelay).toLocaleString();
+  console.log(`[Crucix] Daily brief scheduled for ${timeStr}${tzLabel} — first fire at ${firstFireAt}`);
+
+  setTimeout(() => {
+    fire();
+    // After the first run, recompute on each cycle so DST shifts don't drift.
+    const tick = () => {
+      fire();
+      setTimeout(tick, msUntilNextRun());
+    };
+    setTimeout(tick, msUntilNextRun());
+  }, firstDelay);
 }
 
 // === Discord Bot ===
@@ -180,46 +277,8 @@ if (discordAlerter.isConfigured) {
   });
 
   discordAlerter.onCommand('brief', async () => {
-    if (!currentData) return '⏳ No data yet — waiting for first sweep to complete.';
-
-    const tg = currentData.tg || {};
-    const energy = currentData.energy || {};
-    const metals = currentData.metals || {};
-    const delta = memory.getLastDelta();
-    const ideas = (currentData.ideas || []).slice(0, 3);
-
-    const sections = [`**📋 CRUCIX BRIEF**\n_${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC_\n`];
-
-    if (delta?.summary) {
-      const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
-      sections.push(`${dirEmoji} Direction: **${delta.summary.direction.toUpperCase()}** | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical\n`);
-    }
-
-    const vix = currentData.fred?.find(f => f.id === 'VIXCLS');
-    const hy = currentData.fred?.find(f => f.id === 'BAMLH0A0HYM2');
-    if (vix || energy.wti || metals.gold || metals.silver) {
-      sections.push(`📊 VIX: ${vix?.value || '--'} | WTI: $${energy.wti || '--'} | Brent: $${energy.brent || '--'}`);
-      sections.push(`   Gold: $${metals.gold || '--'} | Silver: $${metals.silver || '--'}${hy ? ` | HY Spread: ${hy.value}` : ''}`);
-      sections.push(`   NatGas: $${energy.natgas || '--'}`);
-      sections.push('');
-    }
-
-    if (tg.urgent?.length > 0) {
-      sections.push(`📡 OSINT: ${tg.urgent.length} urgent signals, ${tg.posts || 0} total posts`);
-      for (const p of tg.urgent.slice(0, 2)) {
-        sections.push(`  • ${(p.text || '').substring(0, 80)}`);
-      }
-      sections.push('');
-    }
-
-    if (ideas.length > 0) {
-      sections.push(`**💡 Top Ideas:**`);
-      for (const idea of ideas) {
-        sections.push(`  ${idea.type === 'long' ? '📈' : idea.type === 'hedge' ? '🛡️' : '👁️'} ${idea.title}`);
-      }
-    }
-
-    return sections.join('\n');
+    return buildBriefBody({ flavor: 'discord' })
+      ?? '⏳ No data yet — waiting for first sweep to complete.';
   });
 
   discordAlerter.onCommand('portfolio', async () => {
