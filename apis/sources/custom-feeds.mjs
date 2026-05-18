@@ -122,6 +122,12 @@ function normalizeSource(raw) {
     refreshMinutes: Number.isFinite(raw.refreshMinutes) ? raw.refreshMinutes : defaultRefresh(type),
     firecrawl: raw.firecrawl || null,
     json: raw.json || null,
+    // Map placement (all optional — consumed by lib/geocode/build-custom-geo.mjs)
+    lat: Number.isFinite(raw.lat) ? raw.lat : null,
+    lon: Number.isFinite(raw.lon) ? raw.lon : null,
+    geocodeQuery: raw.geocodeQuery || null,
+    geocode: raw.geocode !== false,
+    mapMaxItems: Number.isFinite(raw.mapMaxItems) ? raw.mapMaxItems : null,
   };
 }
 
@@ -242,12 +248,18 @@ async function fetchHttpJson(src) {
   for (const item of arr.slice(0, 30)) {
     const title = getPath(item, cfg.titleField || 'title') || getPath(item, 'headline') || '';
     if (!title) continue;
-    out.push({
+    const rec = {
       title: cleanText(String(title)).substring(0, 240),
       url: cleanText(String(getPath(item, cfg.urlField || 'url') || '')).substring(0, 500) || undefined,
       timestamp: parseDateSafe(getPath(item, cfg.dateField || 'date') || ''),
       content: cfg.contentField ? cleanText(String(getPath(item, cfg.contentField) || '')).substring(0, 2000) : undefined,
-    });
+    };
+    if (cfg.latField && cfg.lonField) {
+      const lat = parseFloat(getPath(item, cfg.latField));
+      const lon = parseFloat(getPath(item, cfg.lonField));
+      if (Number.isFinite(lat) && Number.isFinite(lon)) { rec.lat = lat; rec.lon = lon; }
+    }
+    out.push(rec);
   }
   return out;
 }

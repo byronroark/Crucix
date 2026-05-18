@@ -86,6 +86,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .ldot.health{background:#69f0ae;box-shadow:0 0 6px rgba(105,240,174,0.4)}
 .ldot.news{background:#81d4fa;box-shadow:0 0 6px rgba(129,212,250,0.4)}
 .ldot.space{background:#e0b0ff;box-shadow:0 0 6px rgba(224,176,255,0.4)}
+.ldot.custom{background:#ce93d8;box-shadow:0 0 6px rgba(206,147,216,0.4)}
 .layer-name{font-size:12px;font-weight:500}
 .layer-sub{font-size:10px;color:var(--dim)}
 .layer-count{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent)}
@@ -639,6 +640,11 @@ function renderLeftRail(){
     {name:t('layers.osintFeed','OSINT Feed'),count:D.tg.posts,dot:'incident',sub:`${D.tg.urgent.length} ${t('badges.urgent','urgent').toLowerCase()}`},
     {name:t('layers.spaceActivity','Satellites'),count:D.space?.militarySats||0,dot:'space',sub:`${D.space?.totalNewObjects||0} ${t('space.newLast30d','new (30d)')}`}
   ];
+  const customGeoCount = (D.customGeo||[]).length;
+  if(customGeoCount>0){
+    const totalCustom = (D.customTicker||[]).length + (D.customAnalyzed||[]).length;
+    layers.push({name:t('layers.customOsint','Custom OSINT'),count:customGeoCount,dot:'custom',sub:`${totalCustom} ${t('layers.itemsTotal','items total')}`});
+  }
   const allNormal=D.nuke.every(s=>!s.anom);
   const nukeHtml=D.nuke.map(s=>`<div class="site-row"><span>${s.site}</span><span class="site-val">${s.n>0?(s.cpm?.toFixed(1)||'--')+' CPM':'No data'}</span></div>`).join('');
   const vix=D.fred.find(f=>f.id==='VIXCLS');
@@ -699,7 +705,7 @@ function bindMapLifecycleEvents(){
 function renderMapLegend(){
   document.getElementById('mapLegend').innerHTML=
     [{c:'#64f0c8',l:t('map.airTraffic','Air Traffic')},{c:'#ff5f63',l:t('map.thermalFire','Thermal/Fire')},{c:'rgba(255,120,80,0.8)',l:t('map.conflict','Conflict')},{c:'#44ccff',l:t('map.sdrReceiver','SDR Receiver')},
-     {c:'#ffe082',l:t('map.nuclearSite','Nuclear Site')},{c:'#b388ff',l:t('map.chokepoint','Chokepoint')},{c:'#ffb84c',l:t('map.osintEvent','OSINT Event')},{c:'#69f0ae',l:t('map.healthAlert','Health Alert')},{c:'#81d4fa',l:t('map.worldNews','World News')},{c:'#ff9800',l:t('map.weatherAlert','Weather Alert')},{c:'#cddc39',l:t('map.epaRadNet','EPA RadNet')},{c:'#ffffff',l:t('map.spaceStation','Space Station')},{c:'#6495ed',l:t('map.gdeltEvent','GDELT Event')}]
+     {c:'#ffe082',l:t('map.nuclearSite','Nuclear Site')},{c:'#b388ff',l:t('map.chokepoint','Chokepoint')},{c:'#ffb84c',l:t('map.osintEvent','OSINT Event')},{c:'#69f0ae',l:t('map.healthAlert','Health Alert')},{c:'#81d4fa',l:t('map.worldNews','World News')},{c:'#ff9800',l:t('map.weatherAlert','Weather Alert')},{c:'#cddc39',l:t('map.epaRadNet','EPA RadNet')},{c:'#ffffff',l:t('map.spaceStation','Space Station')},{c:'#6495ed',l:t('map.gdeltEvent','GDELT Event')},{c:'#ce93d8',l:t('map.customOsint','Custom OSINT')}]
     .map(x=>`<div class="leg-item"><div class="leg-dot" style="background:${x.c}"></div>${x.l}</div>`).join('');
 }
 
@@ -947,6 +953,16 @@ function plotMarkers(){
       color:'rgba(129,212,250,0.7)', type:'news', priority:3,
       popHead:n.source+' NEWS', popMeta:n.region+' · '+getAge(n.date),
       popText:cleanText(n.title)
+    });
+  });
+
+  // === Custom OSINT sources (purple) ===
+  (D.customGeo||[]).forEach(c=>{
+    points.push({
+      lat:c.lat, lng:c.lon, size:0.22, alt:0.012,
+      color:'rgba(206,147,216,0.8)', type:'custom', priority:3,
+      popHead:(c.source||'CUSTOM').toUpperCase(), popMeta:`${c.region||'Custom'} · ${getAge(c.date)}`,
+      popText:cleanText(c.title)
     });
   });
 
@@ -1258,6 +1274,8 @@ function plotFlatMarkers(){
   D.who.slice(0,10).forEach((w,i)=>{const c=whoGeo[i];if(!c)return;addPt(c.lat,c.lon,3.5,'rgba(105,240,174,0.6)','rgba(105,240,174,0.2)',ev=>showPopup(ev,w.title,w.summary||'','WHO'),2)});
   // News
   (D.news||[]).forEach(n=>{addPt(n.lat,n.lon,3,'rgba(129,212,250,0.6)','rgba(129,212,250,0.2)',ev=>showPopup(ev,n.source+' NEWS',cleanText(n.title),n.region),3)});
+  // Custom OSINT sources
+  (D.customGeo||[]).forEach(c=>{addPt(c.lat,c.lon,3,'rgba(206,147,216,0.7)','rgba(206,147,216,0.25)',ev=>showPopup(ev,(c.source||'CUSTOM').toUpperCase()+' · CUSTOM',cleanText(c.title),c.region||'Custom'),3)});
   // NOAA weather
   (D.noaa?.alerts||[]).forEach(a=>{addPt(a.lat,a.lon,4,'rgba(255,152,0,0.7)','rgba(255,152,0,0.3)',ev=>showPopup(ev,a.event,a.headline||'','NOAA/NWS'),2)});
   // EPA RadNet

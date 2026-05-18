@@ -29,6 +29,9 @@ flowchart LR
   synth -->|tier=analyzed| analyzed["D.customAnalyzed"]
   analyzed --> intelLLM["lib/llm/intel-analysis.mjs"]
   intelLLM --> intel["D.intelAnalysis -> Intelligence Analysis panel"]
+  synth --> geo["lib/geocode resolver"]
+  geo --> geocache[("runs/.cache/geocode")]
+  geo --> mapPts["D.customGeo -> Globe + flat map (purple)"]
 ```
 
 Two completely independent paths once an item is classified by tier:
@@ -199,6 +202,87 @@ That is the entire API. Each drop-in is wrapped in its own 25s timeout and try/c
 
 ---
 
+## Globe markers (custom OSINT layer)
+
+Custom items appear as **purple dots** on the globe + flat map under the legend label **"Custom OSINT"** — distinct from the existing **World News** (light blue) and **OSINT Event** (orange) layers.
+
+### Coordinate resolution cascade
+
+For every custom item (ticker + analyzed), `lib/geocode/index.mjs` walks this list and uses the first match:
+
+1. **Per-item `lat` / `lon`** — from your drop-in module or HTTP-JSON `latField` / `lonField` mapping.
+2. **Source-level `lat` / `lon`** — set on the source in `crucix.config.mjs` to anchor every item to one point.
+3. **Headline keywords** — same map used by the built-in World News layer (`lib/geocode/keywords.mjs`).
+4. **Region center** — if `region` is a known label (`Middle East`, `East Asia`, etc.).
+5. **External geocoding** — Google Geocoding API if `GOOGLE_GEOCODING_API_KEY` is set, otherwise OpenStreetMap Nominatim. Capped at **10 new external calls per sweep**; results disk-cached at `runs/.cache/geocode/` for 30 days. Set `geocode: false` on the source to disable this step entirely.
+
+Items that fail every step are simply omitted from the map — they still show in the ticker / Intel panel.
+
+### Source schema (map fields, all optional)
+
+```js
+{
+  type: 'rss',
+  name: 'Reuters World',
+  url: '...',
+  tier: 'ticker',
+  region: 'Global',
+  // --- Map placement (optional) ---
+  lat: 51.5074,                 // anchor for every item from this source
+  lon: -0.1278,
+  geocodeQuery: 'London, UK',   // string sent to Google/Nominatim if no other match
+  geocode: false,               // default true; set false to skip external API
+  mapMaxItems: 10,              // cap markers per source on the globe (default 15)
+}
+```
+
+HTTP-JSON sources can also map item-level coords:
+
+```js
+json: {
+  itemsPath: 'data.events',
+  titleField: 'headline',
+  urlField: 'link',
+  dateField: 'occurred_at',
+  latField: 'location.lat',     // dotted path supported
+  lonField: 'location.lng',
+}
+```
+
+### Google Geocoding setup (optional but recommended)
+
+1. Enable **Geocoding API** in [Google Cloud Console](https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com) (this is a different product than the Maps JavaScript embed key).
+2. Create an unrestricted API key (server-side use — no HTTP referrer restriction).
+3. Add to `.env`:
+
+```ini
+GOOGLE_GEOCODING_API_KEY=AIza...
+```
+
+Free tier covers ~40K lookups/month. With the 10-call-per-sweep cap and on-disk cache, typical usage is well under that.
+
+### Look up coordinates from the CLI
+
+Useful when you want to pre-populate `lat`/`lon` in config without trial-and-error:
+
+```powershell
+docker compose exec crucix npm run geocode:query -- "Tehran, Iran"
+```
+
+Prints the resolved coordinates and a config-ready snippet. Results go into the same cache the sweep uses.
+
+### Where on the map
+
+| Layer | Color | Source |
+| ----- | ----- | ------ |
+| World News | `#81d4fa` light blue | Built-in RSS (`D.news`) |
+| OSINT Event | `#ffb84c` orange | Telegram urgent (hardcoded geo offsets) |
+| **Custom OSINT** | **`#ce93d8` purple** | **`D.customGeo` from your sources** |
+
+A left-rail "Custom OSINT" layer row appears automatically when there are mapped items, showing `<markers> / <items total>`.
+
+---
+
 ## How the Intelligence Analysis panel works
 
 The "Intelligence Analysis" panel in the lower grid is fed by [lib/llm/intel-analysis.mjs](lib/llm/intel-analysis.mjs).
@@ -268,13 +352,19 @@ By design. Look in `runs/latest.json` -> `sources.CustomDropIns.errors` (or just
 
 | File | Role |
 | ---- | ---- |
-| [crucix.config.mjs](crucix.config.mjs) | Declarative `customSources` array + `firecrawl` block |
+| [crucix.config.mjs](crucix.config.mjs) | Declarative `customSources` array + `firecrawl` + `geocode` blocks |
 | [apis/sources/custom-feeds.mjs](apis/sources/custom-feeds.mjs) | RSS / Firecrawl / HTTP-JSON dispatcher + cache |
 | [apis/sources/custom/index.mjs](apis/sources/custom/index.mjs) | Auto-discovery of drop-in `.mjs` modules |
 | [lib/llm/intel-analysis.mjs](lib/llm/intel-analysis.mjs) | LLM synthesis prompt + parsing |
-| [dashboard/inject.mjs](dashboard/inject.mjs) | Splits `customTicker` / `customAnalyzed`, merges ticker into news feed |
-| [dashboard/public/jarvis.html](dashboard/public/jarvis.html) | Renders the Intelligence Analysis panel |
+| [lib/geocode/index.mjs](lib/geocode/index.mjs) | Cascading coordinate resolver with disk cache |
+| [lib/geocode/keywords.mjs](lib/geocode/keywords.mjs) | Shared headline keyword map + region centers |
+| [lib/geocode/providers/google.mjs](lib/geocode/providers/google.mjs) | Google Geocoding API client |
+| [lib/geocode/providers/nominatim.mjs](lib/geocode/providers/nominatim.mjs) | OpenStreetMap Nominatim fallback |
+| [lib/geocode/build-custom-geo.mjs](lib/geocode/build-custom-geo.mjs) | Per-sweep batcher with budget + jitter |
+| [dashboard/inject.mjs](dashboard/inject.mjs) | Splits `customTicker` / `customAnalyzed` / `customGeo`, merges ticker into news feed |
+| [dashboard/public/jarvis.html](dashboard/public/jarvis.html) | Renders Intel panel, legend, globe + flat-map markers |
 | [scripts/test-custom-source.mjs](scripts/test-custom-source.mjs) | `npm run test:custom-source` debug helper |
+| [scripts/geocode-query.mjs](scripts/geocode-query.mjs) | `npm run geocode:query` CLI lookup |
 
 ---
 

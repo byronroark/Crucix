@@ -24,7 +24,7 @@ const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
 // Ensure directories exist
-for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, '.cache', 'custom-feeds')]) {
+for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, '.cache', 'custom-feeds'), join(RUNS_DIR, '.cache', 'geocode')]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 

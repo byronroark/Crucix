@@ -39,6 +39,12 @@ export default {
   //   tier: 'ticker'    -> joins the existing news ticker (light-touch)
   //   tier: 'analyzed'  -> saved + fed to the Intelligence Analysis LLM panel
   //
+  // Optional map-placement fields on each source:
+  //   lat, lon         -> fixed anchor for every item (with small jitter)
+  //   geocodeQuery     -> string sent to Google/Nominatim if no other match
+  //   geocode: false   -> skip external lookup (use only explicit/keyword)
+  //   mapMaxItems      -> cap markers per source on the globe (default 15)
+  //
   // See CUSTOM_SOURCES.md for full schema and examples.
   customSources: [
     // --- RSS feeds ---
@@ -49,9 +55,9 @@ export default {
     // { type: 'firecrawl', name: 'Some News Page', url: 'https://example.com/news', tier: 'analyzed', region: 'Asia', refreshMinutes: 120,
     //   firecrawl: { formats: ['markdown'], onlyMainContent: true } },
 
-    // --- HTTP-JSON endpoints ---
+    // --- HTTP-JSON endpoints (latField/lonField optional) ---
     // { type: 'http-json', name: 'My Custom API', url: 'https://api.example.com/items', tier: 'analyzed', region: 'Global', refreshMinutes: 15,
-    //   json: { itemsPath: 'data.articles', titleField: 'headline', urlField: 'link', dateField: 'published_at', contentField: 'body' } },
+    //   json: { itemsPath: 'data.articles', titleField: 'headline', urlField: 'link', dateField: 'published_at', contentField: 'body', latField: 'lat', lonField: 'lon' } },
   ],
 
   firecrawl: {
@@ -60,6 +66,18 @@ export default {
     // Hard cap on Firecrawl calls per sweep, regardless of refreshMinutes math.
     // Protects the free tier (~500 credits/mo, ~1 credit per scrape).
     maxCallsPerSweep: parseInt(process.env.FIRECRAWL_MAX_PER_SWEEP) || 5,
+  },
+
+  // === Geocoding (for custom-source globe markers) ===
+  // Optional. When apiKey is set, custom items without explicit coords or
+  // headline keyword matches are looked up via the Google Geocoding API.
+  // When unset, the system falls back to OpenStreetMap Nominatim (free,
+  // ~1 req/sec — fine for low-volume custom sources).
+  //
+  // Enable "Geocoding API" in Google Cloud Console (separate from the
+  // Maps JavaScript embed). Disk-cached at runs/.cache/geocode/.
+  geocode: {
+    apiKey: process.env.GOOGLE_GEOCODING_API_KEY || null,
   },
 
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
