@@ -160,6 +160,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .right-delta .delta-list{max-height:200px}
 .lower .lp-macro{flex:2.5 1 360px}
 .lower .lp-ideas{flex:1.5 1 300px}
+.lower .lp-intel{flex:1.5 1 300px}
 .lower-wide{width:100%}
 .metrics-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
 .mc{padding:10px;border:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)}
@@ -207,6 +208,20 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .idea-card .idea-title{font-size:12px;font-weight:600;margin-bottom:3px}
 .idea-card .idea-text{font-size:10px;line-height:1.4;color:var(--dim)}
 .idea-card .idea-conf{font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:4px}
+.intel-card{padding:10px;border:1px solid rgba(68,204,255,0.15);background:rgba(68,204,255,0.04);margin-bottom:6px;border-left:2px solid rgba(68,204,255,0.5)}
+.intel-card .intel-region{font-family:var(--mono);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;padding:2px 6px;border:1px solid rgba(68,204,255,0.3);color:#d6f0ff;background:rgba(68,204,255,0.08);display:inline-block;margin-bottom:4px}
+.intel-card .intel-conf{font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;margin-left:6px;padding:2px 6px;border:1px solid;display:inline-block}
+.intel-card .intel-conf.high{color:var(--accent);border-color:rgba(100,240,200,0.35);background:rgba(100,240,200,0.06)}
+.intel-card .intel-conf.medium{color:#d6f0ff;border-color:rgba(68,204,255,0.3);background:rgba(68,204,255,0.06)}
+.intel-card .intel-conf.low{color:var(--warn);border-color:rgba(255,184,76,0.3);background:rgba(255,184,76,0.06)}
+.intel-card .intel-title{font-size:12px;font-weight:600;margin-top:5px;margin-bottom:3px}
+.intel-card .intel-summary{font-size:10px;line-height:1.45;color:var(--dim)}
+.intel-card .intel-tags{margin-top:5px;display:flex;flex-wrap:wrap;gap:3px}
+.intel-card .intel-tag{font-family:var(--mono);font-size:8px;letter-spacing:0.06em;color:var(--dim);padding:1px 5px;border:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02)}
+.intel-card .intel-sources{margin-top:5px;font-family:var(--mono);font-size:8px;color:var(--dim);letter-spacing:0.04em;opacity:0.7}
+.intel-src{font-family:var(--mono);font-size:8px;letter-spacing:0.08em;padding:2px 6px;border:1px solid;display:inline-block;margin-left:6px}
+.intel-src.llm{color:#9ee0ff;border-color:rgba(68,204,255,0.4);background:rgba(68,204,255,0.08)}
+.intel-src.static{color:var(--dim);border-color:rgba(255,255,255,0.1);background:rgba(255,255,255,0.03)}
 .disclosure{font-family:var(--mono);font-size:8px;color:rgba(106,138,130,0.6);line-height:1.4;padding:6px;border-top:1px solid rgba(255,255,255,0.04);margin-top:6px}
 
 /* NEWS TICKER */
@@ -287,7 +302,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
   .map-hint{font-size:8px;right:8px}
   .map-legend{left:8px;right:8px;bottom:8px;gap:4px}
   .leg-item{font-size:8px}
-  .lower .lp-ticker,.lower .lp-osint,.lower .lp-macro,.lower .lp-ideas{flex:1 1 100%;max-width:none}
+  .lower .lp-ticker,.lower .lp-osint,.lower .lp-macro,.lower .lp-ideas,.lower .lp-intel{flex:1 1 100%;max-width:none}
   .metrics-row{grid-template-columns:repeat(2,1fr)}
   .src-grid{grid-template-columns:repeat(2,1fr)}
   .glossary-panel{top:auto;right:0;left:0;bottom:0;width:100%;max-height:min(72vh,720px);border-left:none;border-right:none;border-bottom:none}
@@ -1508,7 +1523,56 @@ function renderLower(){
       ${ideasHtml}
       <div class="disclosure">FOR INFORMATIONAL PURPOSES ONLY. This is not financial advice, a recommendation to buy or sell any security, or a solicitation of any kind. All signal-based observations are derived from publicly available OSINT data and should not be relied upon for investment decisions. Consult a licensed financial advisor before making any investment. Past performance does not guarantee future results.</div>
     </div>`;
-  document.getElementById('lowerGrid').innerHTML=`${tickerPanel}${osintPanel}${macroPanel}${ideasPanel}`;
+
+  // === Intelligence Analysis (LLM synthesis of user-defined custom sources) ===
+  const intelItems = Array.isArray(D.intelAnalysis) ? D.intelAnalysis : [];
+  const intelSrc = D.intelAnalysisSource || 'no-input';
+  const intelBadge = intelSrc === 'llm'
+    ? '<span class="intel-src llm">AI ENHANCED</span>'
+    : intelSrc === 'no-input'
+      ? '<span class="intel-src static">NO INPUT</span>'
+      : intelSrc === 'disabled'
+        ? '<span class="intel-src static">LLM OFF</span>'
+        : intelSrc === 'llm-failed'
+          ? '<span class="intel-src static">RETRY NEXT SWEEP</span>'
+          : '<span class="intel-src static">PENDING</span>';
+  const intelEmpty = intelSrc === 'no-input'
+    ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+        <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#9737;</div>
+        <div>NO ANALYZED SOURCES</div>
+        <div style="font-size:9px;margin-top:6px;opacity:0.6">Add entries with <code>tier:'analyzed'</code> to <code>customSources</code> in crucix.config.mjs. See CUSTOM_SOURCES.md.</div>
+      </div>`
+    : intelSrc === 'disabled'
+      ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+          <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#9888;</div>
+          <div>LLM NOT CONFIGURED</div>
+          <div style="font-size:9px;margin-top:6px;opacity:0.6">Set LLM_PROVIDER + credentials in .env to enable AI synthesis</div>
+        </div>`
+      : `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+          <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#8987;</div>
+          <div>NO ANALYSIS YET</div>
+          <div style="font-size:9px;margin-top:6px;opacity:0.6">${intelSrc === 'llm-failed' ? 'Last attempt failed; retrying next sweep.' : 'Waiting for next sweep.'}</div>
+        </div>`;
+  const intelHtml = intelItems.length ? intelItems.map(it => {
+    const conf = String(it.confidence || 'MEDIUM').toLowerCase();
+    const tagsHtml = (it.tags || []).slice(0, 5).map(tag => `<span class="intel-tag">${cleanText(String(tag)).substring(0, 24)}</span>`).join('');
+    const sourcesHtml = (it.sources || []).length ? `<div class="intel-sources">SOURCES: ${(it.sources || []).slice(0, 4).map(s => cleanText(String(s)).substring(0, 40)).join(' &middot; ')}</div>` : '';
+    return `<div class="intel-card">
+        <span class="intel-region">${cleanText(String(it.region || 'GLOBAL')).substring(0, 16)}</span>
+        <span class="intel-conf ${conf}">${String(it.confidence || 'MEDIUM').toUpperCase()}</span>
+        <div class="intel-title">${cleanText(String(it.title || ''))}</div>
+        <div class="intel-summary">${cleanText(String(it.summary || ''))}</div>
+        ${tagsHtml ? `<div class="intel-tags">${tagsHtml}</div>` : ''}
+        ${sourcesHtml}
+      </div>`;
+  }).join('') : intelEmpty;
+  const intelCount = intelItems.length;
+  const intelPanel = `<div class="g-panel lp-intel">
+      <div class="sec-head"><h3>${t('panels.intelAnalysis','Intelligence Analysis')}</h3>${intelBadge}${intelCount ? `<span class="badge">${intelCount} ${t('badges.items','ITEMS')}</span>` : ''}</div>
+      ${intelHtml}
+    </div>`;
+
+  document.getElementById('lowerGrid').innerHTML=`${tickerPanel}${osintPanel}${macroPanel}${ideasPanel}${intelPanel}`;
 }
 
 // === RIGHT RAIL ===

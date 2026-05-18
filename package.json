@@ -13,7 +13,8 @@
     "diag": "node diag.mjs",
     "clean": "node scripts/clean.mjs",
     "fresh-start": "npm run clean && npm start",
-    "test:telegram": "node scripts/test-telegram.mjs"
+    "test:telegram": "node scripts/test-telegram.mjs",
+    "test:custom-source": "node scripts/test-custom-source.mjs"
   },
   "keywords": [
     "osint",

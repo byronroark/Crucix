@@ -43,6 +43,10 @@ import { briefing as space } from './sources/space.mjs';
 // === Tier 5: Live Market Data ===
 import { briefing as yfinance } from './sources/yfinance.mjs';
 
+// === Tier 5b: User-Defined Custom Sources ===
+import { briefing as customFeeds } from './sources/custom-feeds.mjs';
+import { briefing as customDropIns } from './sources/custom/index.mjs';
+
 // === Tier 6: Cyber & Infrastructure ===
 import { briefing as cisaKev } from './sources/cisa-kev.mjs';
 import { briefing as cloudflareRadar } from './sources/cloudflare-radar.mjs';
@@ -67,7 +71,7 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 29 sources...');
+  console.error('[Crucix] Starting intelligence sweep — 31 sources (incl. custom)...');
   const start = Date.now();
 
   const allPromises = [
@@ -107,6 +111,10 @@ export async function fullBriefing() {
 
     // Tier 5: Live Market Data
     runSource('YFinance', yfinance),
+
+    // Tier 5b: User-Defined Custom Sources
+    runSource('CustomFeeds', customFeeds),
+    runSource('CustomDropIns', customDropIns),
 
     // Tier 6: Cyber & Infrastructure
     runSource('CISA-KEV', cisaKev),

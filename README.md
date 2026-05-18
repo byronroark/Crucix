@@ -556,6 +556,26 @@ For bugs and feature requests, please use GitHub Issues so discussion stays visi
 
 ---
 
+## Fork Roadmap (out-of-scope follow-ups)
+
+Tracked here so they do not get lost. None are upstream concerns — these are planned enhancements for this fork.
+
+### Custom OSINT Sources — deferred from the v1 design
+
+The pluggable custom-source system (`CUSTOM_SOURCES.md`) shipped with three follow-ups intentionally cut from scope:
+
+- **Delta-engine integration for custom signals.** Today the delta engine in `lib/delta/engine.mjs` only tracks the built-in metrics. A future pass would let `tier: 'analyzed'` items influence the sweep delta (e.g. "new HIGH-confidence intel item with tag `nuclear`" triggers a PRIORITY Telegram alert via `lib/alerts/telegram.mjs`). Requires a new threshold block in `crucix.config.mjs` and a new signal type in the delta engine.
+- **Globe markers for custom items with geo coords.** The 3D globe only paints `D.news` (RSS-derived with lat/lon). Custom items currently only carry a `region` string. Adding optional `lat`/`lon` fields to the custom item shape would let them appear as globe markers alongside everything else.
+- **Historical retention for custom items.** Custom items live in `runs/latest.json` only — the next sweep overwrites them. The memory engine (`lib/delta/index.mjs`) does retain delta history but not raw OSINT bodies. A future pass would add an opt-in append-only log per source under `runs/memory/custom/` so trends can be reasoned about over weeks.
+
+### Other planned items
+
+- **Discord parity for the daily brief.** The scheduled daily brief in `server.mjs` (`scheduleDailyBrief`) only sends to Telegram today. The Discord alerter already shares `buildBriefBody`; this is small-effort plumbing.
+- **Per-source health card on the dashboard.** Add a small status grid to the dashboard for custom sources, mirroring the existing source health badges, so you can see "X has not returned items for N sweeps" without tailing logs.
+- **More Firecrawl-cousin scrapers.** Firecrawl works but is paid. A drop-in module that uses a free path (e.g. `cheerio` against the raw HTML for sites with stable selectors) would let people start without the API key.
+
+---
+
 ## License
 
 AGPL-3.0

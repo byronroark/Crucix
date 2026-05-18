@@ -599,6 +599,14 @@ export async function synthesize(data) {
   // Fetch RSS
   const news = await fetchAllNews();
 
+  // === Custom user-defined sources (config-driven + drop-in modules) ===
+  const cf = data.sources.CustomFeeds || {};
+  const cdi = data.sources.CustomDropIns?.sources || {};
+  const flatDropInTicker = Object.values(cdi).flatMap(s => Array.isArray(s?.itemsTicker) ? s.itemsTicker : []);
+  const flatDropInAnalyzed = Object.values(cdi).flatMap(s => Array.isArray(s?.itemsAnalyzed) ? s.itemsAnalyzed : []);
+  const customTicker = [...(cf.itemsTicker || []), ...flatDropInTicker];
+  const customAnalyzed = [...(cf.itemsAnalyzed || []), ...flatDropInAnalyzed];
+
   const V2 = {
     meta: data.crucix, air, thermal, tSignals, chokepoints, nuke, nukeSignals,
     airMeta: {
@@ -614,8 +622,11 @@ export async function synthesize(data) {
     who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news,
     markets, // Live Yahoo Finance market data
     ideas: [], ideasSource: 'disabled',
-    // newsFeed for ticker (merged RSS + GDELT + Telegram)
-    newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop),
+    // Custom user-defined sources (config + drop-in modules)
+    customTicker, customAnalyzed,
+    intelAnalysis: [], intelAnalysisSource: customAnalyzed.length ? 'pending' : 'no-input',
+    // newsFeed for ticker (merged RSS + GDELT + Telegram + custom-ticker)
+    newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop, customTicker),
   };
 
   return V2;

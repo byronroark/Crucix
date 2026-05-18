@@ -34,6 +34,34 @@ export default {
     webhookUrl: process.env.DISCORD_WEBHOOK_URL || null, // Fallback: webhook-only alerts (no bot needed)
   },
 
+  // === Custom OSINT Sources ===
+  // Add RSS feeds, Firecrawl scrapes, or HTTP-JSON endpoints here. Two tiers:
+  //   tier: 'ticker'    -> joins the existing news ticker (light-touch)
+  //   tier: 'analyzed'  -> saved + fed to the Intelligence Analysis LLM panel
+  //
+  // See CUSTOM_SOURCES.md for full schema and examples.
+  customSources: [
+    // --- RSS feeds ---
+    // { type: 'rss',       name: 'Reuters Politics', url: 'https://...rss', tier: 'ticker', region: 'Global', refreshMinutes: 30 },
+    { type: 'rss', name: 'Reuters World', url: 'https://www.reuters.com/arc/outboundfeeds/v3/category/world/?outputType=xml', tier: 'ticker', region: 'Global', refreshMinutes: 60 },
+
+    // --- Firecrawl scrapes (requires FIRECRAWL_API_KEY) ---
+    // { type: 'firecrawl', name: 'Some News Page', url: 'https://example.com/news', tier: 'analyzed', region: 'Asia', refreshMinutes: 120,
+    //   firecrawl: { formats: ['markdown'], onlyMainContent: true } },
+
+    // --- HTTP-JSON endpoints ---
+    // { type: 'http-json', name: 'My Custom API', url: 'https://api.example.com/items', tier: 'analyzed', region: 'Global', refreshMinutes: 15,
+    //   json: { itemsPath: 'data.articles', titleField: 'headline', urlField: 'link', dateField: 'published_at', contentField: 'body' } },
+  ],
+
+  firecrawl: {
+    apiKey: process.env.FIRECRAWL_API_KEY || null,
+    baseUrl: process.env.FIRECRAWL_BASE_URL || 'https://api.firecrawl.dev',
+    // Hard cap on Firecrawl calls per sweep, regardless of refreshMinutes math.
+    // Protects the free tier (~500 credits/mo, ~1 credit per scrape).
+    maxCallsPerSweep: parseInt(process.env.FIRECRAWL_MAX_PER_SWEEP) || 5,
+  },
+
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
   // Set to null to use built-in defaults.
   //

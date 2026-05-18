@@ -14,6 +14,7 @@ import { synthesize, generateIdeas } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
+import { generateIntelAnalysis } from './lib/llm/intel-analysis.mjs';
 import { TelegramAlerter } from './lib/alerts/telegram.mjs';
 import { DiscordAlerter } from './lib/alerts/discord.mjs';
 
@@ -23,7 +24,7 @@ const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
 // Ensure directories exist
-for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold')]) {
+for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, '.cache', 'custom-feeds')]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
@@ -421,6 +422,32 @@ async function runSweepCycle() {
       synthesized.ideasSource = 'disabled';
     }
 
+    // 5b. Intelligence Analysis — LLM synthesis of user-defined customAnalyzed sources
+    if (llmProvider?.isConfigured && synthesized.customAnalyzed?.length) {
+      try {
+        console.log(`[Crucix] Generating Intelligence Analysis for ${synthesized.customAnalyzed.length} analyzed items...`);
+        const intel = await generateIntelAnalysis(llmProvider, { ...synthesized, _delta: delta });
+        if (intel && intel.length) {
+          synthesized.intelAnalysis = intel;
+          synthesized.intelAnalysisSource = 'llm';
+          console.log(`[Crucix] Intel Analysis generated ${intel.length} items`);
+        } else {
+          synthesized.intelAnalysis = [];
+          synthesized.intelAnalysisSource = 'llm-failed';
+        }
+      } catch (intelErr) {
+        console.error('[Crucix] Intel Analysis failed (non-fatal):', intelErr.message);
+        synthesized.intelAnalysis = [];
+        synthesized.intelAnalysisSource = 'llm-failed';
+      }
+    } else if (!synthesized.customAnalyzed?.length) {
+      synthesized.intelAnalysis = [];
+      synthesized.intelAnalysisSource = 'no-input';
+    } else {
+      synthesized.intelAnalysis = [];
+      synthesized.intelAnalysisSource = 'disabled';
+    }
+
     // 6. Alert evaluation — Telegram + Discord (LLM with rule-based fallback, multi-tier, semantic dedup)
     if (delta?.summary?.totalChanges > 0) {
       if (telegramAlerter.isConfigured) {
@@ -444,7 +471,7 @@ async function runSweepCycle() {
     broadcast({ type: 'update', data: currentData });
 
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
-    console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
+    console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.intelAnalysis?.length || 0} intel (${synthesized.intelAnalysisSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
     if (delta?.summary) console.log(`[Crucix] Delta: ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical, direction: ${delta.summary.direction}`);
     console.log(`[Crucix] Next sweep at ${new Date(Date.now() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()}`);
 
