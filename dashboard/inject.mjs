@@ -577,7 +577,7 @@ export async function synthesize(data) {
 }
 
 // === Unified News Feed for Ticker ===
-function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop) {
+function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop, customTicker = []) {
   const feed = [];
 
   // RSS news
@@ -585,6 +585,20 @@ function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop) {
     feed.push({
       headline: n.title, source: n.source, type: 'rss',
       timestamp: n.date, region: n.region, urgent: false, url: n.url
+    });
+  }
+
+  // Custom user-defined ticker items (RSS / Firecrawl / HTTP-JSON / drop-ins)
+  for (const c of customTicker) {
+    if (!c?.title) continue;
+    feed.push({
+      headline: c.title.substring(0, 140),
+      source: c.name || 'Custom',
+      type: 'custom',
+      timestamp: c.timestamp,
+      region: c.region || 'Custom',
+      urgent: false,
+      url: c.url,
     });
   }
 

@@ -1,41 +1,38 @@
-<div align="center">
-
 # Crucix
 
 **Your own intelligence terminal. 27 sources. One command. Zero cloud.**
 
 ## [Visit The Live Site: crucix.live](https://www.crucix.live/)
 
-[![Live Website](https://img.shields.io/badge/live-crucix.live-00d4ff?style=for-the-badge)](https://www.crucix.live/)
-[![Open Demo](https://img.shields.io/badge/open-live%20dashboard-0b1220?style=for-the-badge&logo=googlechrome&logoColor=white)](https://www.crucix.live/)
+[Live Website](https://www.crucix.live/)
+[Open Demo](https://www.crucix.live/)
 
-[![Node.js 22+](https://img.shields.io/badge/node-22%2B-brightgreen)](#quick-start)
-[![License: AGPL v3](https://img.shields.io/badge/license-AGPLv3-blue.svg)](LICENSE)
-[![Dependencies](https://img.shields.io/badge/dependencies-1%20(express)-orange)](#architecture)
-[![Sources](https://img.shields.io/badge/OSINT%20sources-27-cyan)](#data-sources-27)
-[![Docker](https://img.shields.io/badge/docker-ready-blue?logo=docker)](#docker)
+[Node.js 22+](#quick-start)
+[License: AGPL v3](LICENSE)
+[Dependencies](#architecture)
+[Sources](#data-sources-27)
+[Docker](#docker)
 
 **Enter The Signal Network**
 
-[![Signal Wire](https://img.shields.io/badge/Signal%20Wire-%40crucixmonitor-111111?style=for-the-badge&logo=x&logoColor=white)](https://x.com/crucixmonitor)
-[![Ops Room](https://img.shields.io/badge/Ops%20Room-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/ChVy7SF4)
+[Signal Wire](https://x.com/crucixmonitor)
+[Ops Room](https://discord.gg/ChVy7SF4)
 
-![Crucix Dashboard](docs/dashboard.png)
+Crucix Dashboard
 
-<details>
-<summary>More screenshots</summary>
+More screenshots
+
 
 | Boot Sequence | World Map |
-|:---:|:---:|
-| ![Boot](docs/boot.png) | ![Map](docs/map.png) |
+| ------------- | --------- |
+| Boot          | Map       |
+
+
 
 | 3D Globe View |
-|:---:|
-| ![Globe](docs/globe.png) |
+| ------------- |
+| Globe         |
 
-</details>
-
-</div>
 
 > **Live website:** [https://www.crucix.live/](https://www.crucix.live/)
 > Explore the public demo first, then clone the repo to run Crucix locally.
@@ -85,9 +82,11 @@ npm run dev
 ```
 
 > **If `npm run dev` fails silently** (exits with no output), run Node directly instead:
+>
 > ```bash
 > node --trace-warnings server.mjs
 > ```
+>
 > This bypasses npm's script runner, which can swallow errors on some systems (particularly PowerShell on Windows). You can also run `node diag.mjs` to diagnose the exact issue — it checks your Node version, tests each module import individually, and verifies port availability. See [Troubleshooting](#troubleshooting) for more.
 
 The dashboard opens automatically at `http://localhost:3117` and immediately begins its first intelligence sweep. This initial sweep queries all 27 sources in parallel and typically takes 30–60 seconds — the dashboard will appear empty until the sweep completes and pushes the first data update. After that, it auto-refreshes every 15 minutes via SSE (Server-Sent Events). No manual page refresh needed.
@@ -110,7 +109,9 @@ Dashboard at `http://localhost:3117`. Sweep data persists in `./runs/` via volum
 ## What You Get
 
 ### Live Dashboard
+
 A self-contained Jarvis-style HUD with:
+
 - **3D WebGL globe** (Globe.gl) with atmosphere glow, star field, and smooth rotation — plus a classic flat map toggle
 - **9 marker types** across both views: fire detections, air traffic, radiation sites, maritime chokepoints, SDR receivers, OSINT events, health alerts, geolocated news, conflict events
 - **Animated 3D flight corridor arcs** between air traffic hotspots and global hubs
@@ -126,9 +127,11 @@ A self-contained Jarvis-style HUD with:
 - **Leverageable ideas** — AI-generated trade ideas (with LLM) or signal-correlated ideas (without)
 
 ### Performance Modes
+
 The `VISUALS FULL` / `VISUALS LITE` button in the top bar only changes rendering behavior - it does **not** remove data sources or reduce sweep coverage.
 
 When you switch to **VISUALS LITE**, the dashboard:
+
 - Disables decorative background effects such as the radial/grid overlays and scanlines
 - Removes expensive blur/backdrop-filter effects on panels and overlays
 - Stops non-essential animations like the logo ring blink, conflict rings, and corridor flow effects
@@ -136,13 +139,16 @@ When you switch to **VISUALS LITE**, the dashboard:
 - Converts the horizontal news ticker and OSINT stream into static, scrollable lists instead of continuously animated marquees
 
 Mobile-specific behavior:
+
 - On mobile, `VISUALS LITE` also forces the dashboard into **flat map mode** if you are currently on the globe
 - Future mobile loads will continue to start flat while low-perf mode is enabled
 
 The preference is saved in browser local storage, so the UI will remember your last setting.
 
 ### Auto-Refresh
+
 The server runs a sweep cycle every 15 minutes (configurable). Each cycle:
+
 1. Queries all 27 sources in parallel (~30s)
 2. Synthesizes raw data into dashboard format
 3. Computes delta from previous run (what changed, escalated, de-escalated) — visible in the **Sweep Delta** panel on the dashboard
@@ -151,18 +157,21 @@ The server runs a sweep cycle every 15 minutes (configurable). Each cycle:
 6. Pushes update to all connected browsers via SSE
 
 ### Telegram Bot (Two-Way)
+
 Crucix doubles as an interactive Telegram bot. Beyond sending alerts, it responds to commands directly from your chat:
 
-| Command | What It Does |
-|---------|-------------|
-| `/status` | System health, last sweep time, source status, LLM status |
-| `/sweep` | Trigger a manual sweep cycle |
-| `/brief` | Compact text summary of the latest intelligence (direction, key metrics, top OSINT) |
-| `/portfolio` | Portfolio status (if Alpaca connected) |
-| `/alerts` | Recent alert history with tiers |
-| `/mute` / `/mute 2h` | Silence alerts for 1h (or custom duration) |
-| `/unmute` | Resume alerts |
-| `/help` | Show all available commands |
+
+| Command              | What It Does                                                                        |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| `/status`            | System health, last sweep time, source status, LLM status                           |
+| `/sweep`             | Trigger a manual sweep cycle                                                        |
+| `/brief`             | Compact text summary of the latest intelligence (direction, key metrics, top OSINT) |
+| `/portfolio`         | Portfolio status (if Alpaca connected)                                              |
+| `/alerts`            | Recent alert history with tiers                                                     |
+| `/mute` / `/mute 2h` | Silence alerts for 1h (or custom duration)                                          |
+| `/unmute`            | Resume alerts                                                                       |
+| `/help`              | Show all available commands                                                         |
+
 
 This requires `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. The bot polls for messages every 5 seconds (configurable via `TELEGRAM_POLL_INTERVAL`).
 
@@ -170,12 +179,14 @@ This requires `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. The bot pol
 
 Crucix also supports Discord as a full-featured bot with slash commands and rich embed alerts. It mirrors the Telegram bot's capabilities with Discord-native formatting.
 
-| Command | What It Does |
-|---------|-------------|
-| `/status` | System health, last sweep time, source status, LLM status |
-| `/sweep` | Trigger a manual sweep cycle |
-| `/brief` | Compact text summary of the latest intelligence |
-| `/portfolio` | Portfolio status (if Alpaca connected) |
+
+| Command      | What It Does                                              |
+| ------------ | --------------------------------------------------------- |
+| `/status`    | System health, last sweep time, source status, LLM status |
+| `/sweep`     | Trigger a manual sweep cycle                              |
+| `/brief`     | Compact text summary of the latest intelligence           |
+| `/portfolio` | Portfolio status (if Alpaca connected)                    |
+
 
 Alerts are delivered as rich embeds with color-coded sidebars: red for FLASH, yellow for PRIORITY, blue for ROUTINE. Each embed includes signal details, confidence scores, and cross-domain correlations.
 
@@ -186,7 +197,9 @@ Alerts are delivered as rich embeds with color-coded sidebars: red for FLASH, ye
 **Optional dependency:** The full bot requires `discord.js`. Install it with `npm install discord.js`. If it's not installed, Crucix automatically falls back to webhook-only mode.
 
 ### Optional LLM Layer
+
 Connect any of 8 LLM providers for enhanced analysis:
+
 - **AI trade ideas** — quantitative analyst producing 5-8 actionable ideas citing specific data
 - **Smarter alert evaluation** — LLM classifies signals into FLASH/PRIORITY/ROUTINE tiers with cross-domain correlation and confidence scoring
 - Providers: Anthropic Claude, OpenAI, Google Gemini, OpenRouter (Unified API), OpenAI Codex (ChatGPT subscription), MiniMax, Mistral, Grok
@@ -204,58 +217,69 @@ cp .env.example .env
 
 ### Required for Best Results (all free)
 
-| Key | Source | How to Get |
-|-----|--------|------------|
-| `FRED_API_KEY` | Federal Reserve Economic Data | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) — instant, free |
-| `FIRMS_MAP_KEY` | NASA FIRMS (satellite fire data) | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/area/) — instant, free |
-| `EIA_API_KEY` | US Energy Information Administration | [api.eia.gov](https://www.eia.gov/opendata/register.php) — instant, free |
+
+| Key             | Source                               | How to Get                                                                                     |
+| --------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `FRED_API_KEY`  | Federal Reserve Economic Data        | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) — instant, free       |
+| `FIRMS_MAP_KEY` | NASA FIRMS (satellite fire data)     | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/area/) — instant, free |
+| `EIA_API_KEY`   | US Energy Information Administration | [api.eia.gov](https://www.eia.gov/opendata/register.php) — instant, free                       |
+
 
 These three unlock the most valuable economic and satellite data. Each takes about 60 seconds to register.
 
 ### Optional (enable additional sources)
 
-| Key | Source | How to Get |
-|-----|--------|------------|
-| `ACLED_EMAIL` + `ACLED_PASSWORD` | Armed conflict event data | [acleddata.com/register](https://acleddata.com/register/) — free, OAuth2 |
-| `AISSTREAM_API_KEY` | Maritime AIS vessel tracking | [aisstream.io](https://aisstream.io/) — free |
-| `ADSB_API_KEY` | Unfiltered flight tracking | [RapidAPI](https://rapidapi.com/adsbexchange/api/adsbexchange-com1) — ~$10/mo |
+
+| Key                              | Source                       | How to Get                                                                    |
+| -------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `ACLED_EMAIL` + `ACLED_PASSWORD` | Armed conflict event data    | [acleddata.com/register](https://acleddata.com/register/) — free, OAuth2      |
+| `AISSTREAM_API_KEY`              | Maritime AIS vessel tracking | [aisstream.io](https://aisstream.io/) — free                                  |
+| `ADSB_API_KEY`                   | Unfiltered flight tracking   | [RapidAPI](https://rapidapi.com/adsbexchange/api/adsbexchange-com1) — ~$10/mo |
+
 
 ### LLM Provider (optional, for AI-enhanced ideas)
 
 Set `LLM_PROVIDER` to one of: `anthropic`, `openai`, `gemini`, `codex`, `openrouter`, `minimax`, `mistral`, `grok`
 
-| Provider | Key Required | Default Model |
-|----------|-------------|---------------|
-| `anthropic` | `LLM_API_KEY` | claude-sonnet-4-6 |
-| `openai` | `LLM_API_KEY` | gpt-5.4 |
-| `gemini` | `LLM_API_KEY` | gemini-3.1-pro |
-| `openrouter` | `LLM_API_KEY` | openrouter/auto |
-| `codex` | None (uses `~/.codex/auth.json`) | gpt-5.3-codex |
-| `minimax` | `LLM_API_KEY` | MiniMax-M2.5 |
-| `mistral` | `LLM_API_KEY` | mistral-large-latest |
-| `grok` | `LLM_API_KEY` | grok-4-latest |
+
+| Provider     | Key Required                     | Default Model        |
+| ------------ | -------------------------------- | -------------------- |
+| `anthropic`  | `LLM_API_KEY`                    | claude-sonnet-4-6    |
+| `openai`     | `LLM_API_KEY`                    | gpt-5.4              |
+| `gemini`     | `LLM_API_KEY`                    | gemini-3.1-pro       |
+| `openrouter` | `LLM_API_KEY`                    | openrouter/auto      |
+| `codex`      | None (uses `~/.codex/auth.json`) | gpt-5.3-codex        |
+| `minimax`    | `LLM_API_KEY`                    | MiniMax-M2.5         |
+| `mistral`    | `LLM_API_KEY`                    | mistral-large-latest |
+| `grok`       | `LLM_API_KEY`                    | grok-4-latest        |
+
 
 For Codex, run `npx @openai/codex login` to authenticate via your ChatGPT subscription.
 
 ### Telegram Bot + Alerts (optional)
 
-| Key | How to Get |
-|-----|------------|
-| `TELEGRAM_BOT_TOKEN` | Create via [@BotFather](https://t.me/BotFather) on Telegram |
-| `TELEGRAM_CHAT_ID` | Get via [@userinfobot](https://t.me/userinfobot) |
-| `TELEGRAM_CHANNELS` | *(Optional)* Comma-separated extra channel IDs to monitor beyond the 17 built-in channels |
-| `TELEGRAM_POLL_INTERVAL` | *(Optional)* Bot command polling interval in ms (default: 5000) |
+
+| Key                      | How to Get                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`     | Create via [@BotFather](https://t.me/BotFather) on Telegram                               |
+| `TELEGRAM_CHAT_ID`       | Get via [@userinfobot](https://t.me/userinfobot)                                          |
+| `TELEGRAM_CHANNELS`      | *(Optional)* Comma-separated extra channel IDs to monitor beyond the 17 built-in channels |
+| `TELEGRAM_POLL_INTERVAL` | *(Optional)* Bot command polling interval in ms (default: 5000)                           |
+
 
 ### Discord Bot + Alerts (optional)
 
-| Key | How to Get |
-|-----|------------|
-| `DISCORD_BOT_TOKEN` | Create at [Discord Developer Portal](https://discord.com/developers/applications) → Bot → Token |
-| `DISCORD_CHANNEL_ID` | Right-click channel in Discord (Developer Mode on) → Copy Channel ID |
-| `DISCORD_GUILD_ID` | *(Optional)* Right-click server → Copy Server ID. Enables instant slash command registration (otherwise takes up to 1 hour for global commands) |
-| `DISCORD_WEBHOOK_URL` | *(Optional)* Channel Settings → Integrations → Webhooks → New Webhook → Copy URL. Use this for alert-only mode without a bot |
+
+| Key                   | How to Get                                                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`   | Create at [Discord Developer Portal](https://discord.com/developers/applications) → Bot → Token                                                 |
+| `DISCORD_CHANNEL_ID`  | Right-click channel in Discord (Developer Mode on) → Copy Channel ID                                                                            |
+| `DISCORD_GUILD_ID`    | *(Optional)* Right-click server → Copy Server ID. Enables instant slash command registration (otherwise takes up to 1 hour for global commands) |
+| `DISCORD_WEBHOOK_URL` | *(Optional)* Channel Settings → Integrations → Webhooks → New Webhook → Copy URL. Use this for alert-only mode without a bot                    |
+
 
 **Discord bot setup:**
+
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications) and create a new application
 2. Go to **Bot** → click **Reset Token** → copy the token to `DISCORD_BOT_TOKEN`
 3. Under **Privileged Gateway Intents**, enable **Message Content Intent**
@@ -329,6 +353,7 @@ crucix/
 ```
 
 ### Design Principles
+
 - **Pure ESM** — every file is `.mjs` with explicit imports
 - **Minimal dependencies** — Express is the only runtime dependency. `discord.js` is optional (for Discord bot). LLM providers use raw `fetch()`, no SDKs.
 - **Parallel execution** — `Promise.allSettled()` fires all 27 sources simultaneously
@@ -342,67 +367,79 @@ crucix/
 
 ### Tier 1: Core OSINT & Geopolitical (11)
 
-| Source | What It Tracks | Auth |
-|--------|---------------|------|
-| **GDELT** | Global news events, conflict mapping (100+ languages) | None |
-| **OpenSky** | Real-time ADS-B flight tracking across 6 hotspot regions | None |
-| **NASA FIRMS** | Satellite fire/thermal anomaly detection (3hr latency) | Free key |
-| **Maritime/AIS** | Vessel tracking, dark ships, sanctions evasion | Free key |
-| **Safecast** | Citizen-science radiation monitoring near 6 nuclear sites | None |
-| **ACLED** | Armed conflict events: battles, explosions, protests | Free (OAuth2) |
-| **ReliefWeb** | UN humanitarian crisis tracking | None |
-| **WHO** | Disease outbreaks and health emergencies | None |
-| **OFAC** | US Treasury sanctions (SDN list) | None |
-| **OpenSanctions** | Aggregated global sanctions (30+ sources) | Partial |
-| **ADS-B Exchange** | Unfiltered flight tracking including military | Paid |
+
+| Source             | What It Tracks                                            | Auth          |
+| ------------------ | --------------------------------------------------------- | ------------- |
+| **GDELT**          | Global news events, conflict mapping (100+ languages)     | None          |
+| **OpenSky**        | Real-time ADS-B flight tracking across 6 hotspot regions  | None          |
+| **NASA FIRMS**     | Satellite fire/thermal anomaly detection (3hr latency)    | Free key      |
+| **Maritime/AIS**   | Vessel tracking, dark ships, sanctions evasion            | Free key      |
+| **Safecast**       | Citizen-science radiation monitoring near 6 nuclear sites | None          |
+| **ACLED**          | Armed conflict events: battles, explosions, protests      | Free (OAuth2) |
+| **ReliefWeb**      | UN humanitarian crisis tracking                           | None          |
+| **WHO**            | Disease outbreaks and health emergencies                  | None          |
+| **OFAC**           | US Treasury sanctions (SDN list)                          | None          |
+| **OpenSanctions**  | Aggregated global sanctions (30+ sources)                 | Partial       |
+| **ADS-B Exchange** | Unfiltered flight tracking including military             | Paid          |
+
 
 ### Tier 2: Economic & Financial (7)
 
-| Source | What It Tracks | Auth |
-|--------|---------------|------|
-| **FRED** | 22 key indicators: yield curve, CPI, VIX, fed funds, M2 | Free key |
-| **US Treasury** | National debt, yields, fiscal data | None |
-| **BLS** | CPI, unemployment, nonfarm payrolls, PPI | None |
-| **EIA** | WTI/Brent crude, natural gas, inventories | Free key |
-| **GSCPI** | NY Fed Global Supply Chain Pressure Index | None |
-| **USAspending** | Federal spending and defense contracts | None |
-| **UN Comtrade** | Strategic commodity trade flows between major powers | None |
+
+| Source          | What It Tracks                                          | Auth     |
+| --------------- | ------------------------------------------------------- | -------- |
+| **FRED**        | 22 key indicators: yield curve, CPI, VIX, fed funds, M2 | Free key |
+| **US Treasury** | National debt, yields, fiscal data                      | None     |
+| **BLS**         | CPI, unemployment, nonfarm payrolls, PPI                | None     |
+| **EIA**         | WTI/Brent crude, natural gas, inventories               | Free key |
+| **GSCPI**       | NY Fed Global Supply Chain Pressure Index               | None     |
+| **USAspending** | Federal spending and defense contracts                  | None     |
+| **UN Comtrade** | Strategic commodity trade flows between major powers    | None     |
+
 
 ### Tier 3: Weather, Environment, Tech, Social, SIGINT (7)
 
-| Source | What It Tracks | Auth |
-|--------|---------------|------|
-| **NOAA/NWS** | Active US weather alerts | None |
-| **EPA RadNet** | US government radiation monitoring | None |
-| **USPTO Patents** | Patent filings in 7 strategic tech areas | None |
-| **Bluesky** | Social sentiment on geopolitical/market topics | None |
-| **Reddit** | Social sentiment from key subreddits | OAuth |
-| **Telegram** | 17 curated OSINT/conflict/finance channels (web scraping, expandable via config) | None |
-| **KiwiSDR** | Global HF radio receiver network (~600 receivers) | None |
+
+| Source            | What It Tracks                                                                   | Auth  |
+| ----------------- | -------------------------------------------------------------------------------- | ----- |
+| **NOAA/NWS**      | Active US weather alerts                                                         | None  |
+| **EPA RadNet**    | US government radiation monitoring                                               | None  |
+| **USPTO Patents** | Patent filings in 7 strategic tech areas                                         | None  |
+| **Bluesky**       | Social sentiment on geopolitical/market topics                                   | None  |
+| **Reddit**        | Social sentiment from key subreddits                                             | OAuth |
+| **Telegram**      | 17 curated OSINT/conflict/finance channels (web scraping, expandable via config) | None  |
+| **KiwiSDR**       | Global HF radio receiver network (~600 receivers)                                | None  |
+
 
 ### Tier 4: Space & Satellites (1)
 
-| Source | What It Tracks | Auth |
-|--------|---------------|------|
+
+| Source        | What It Tracks                                                                    | Auth |
+| ------------- | --------------------------------------------------------------------------------- | ---- |
 | **CelesTrak** | Satellite launches, ISS tracking, military constellations, Starlink/OneWeb counts | None |
+
 
 ### Tier 5: Live Market Data (1)
 
-| Source | What It Tracks | Auth |
-|--------|---------------|------|
+
+| Source            | What It Tracks                                           | Auth |
+| ----------------- | -------------------------------------------------------- | ---- |
 | **Yahoo Finance** | Real-time prices: SPY, QQQ, BTC, Gold, WTI, VIX + 9 more | None |
+
 
 ---
 
 ## npm Scripts
 
-| Script | Command | Description |
-|--------|---------|-------------|
-| `npm run dev` | `node --trace-warnings server.mjs` | Start dashboard with auto-refresh |
-| `npm run sweep` | `node apis/briefing.mjs` | Run a single sweep, output JSON to stdout |
-| `npm run inject` | `node dashboard/inject.mjs` | Inject latest data into static HTML |
-| `npm run brief:save` | `node apis/save-briefing.mjs` | Run sweep + save timestamped JSON |
-| `npm run diag` | `node diag.mjs` | Run diagnostics (Node version, imports, port check) |
+
+| Script               | Command                            | Description                                         |
+| -------------------- | ---------------------------------- | --------------------------------------------------- |
+| `npm run dev`        | `node --trace-warnings server.mjs` | Start dashboard with auto-refresh                   |
+| `npm run sweep`      | `node apis/briefing.mjs`           | Run a single sweep, output JSON to stdout           |
+| `npm run inject`     | `node dashboard/inject.mjs`        | Inject latest data into static HTML                 |
+| `npm run brief:save` | `node apis/save-briefing.mjs`      | Run sweep + save timestamped JSON                   |
+| `npm run diag`       | `node diag.mjs`                    | Run diagnostics (Node version, imports, port check) |
+
 
 ---
 
@@ -410,21 +447,23 @@ crucix/
 
 All settings are in `.env` with sensible defaults:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3117` | Dashboard server port |
-| `REFRESH_INTERVAL_MINUTES` | `15` | Auto-refresh interval |
-| `LLM_PROVIDER` | disabled | `anthropic`, `openai`, `gemini`, `codex`, `openrouter`, `minimax`, `mistral`, or `grok` |
-| `LLM_API_KEY` | — | API key (not needed for codex) |
-| `LLM_MODEL` | per-provider default | Override model selection |
-| `TELEGRAM_BOT_TOKEN` | disabled | For Telegram alerts + bot commands |
-| `TELEGRAM_CHAT_ID` | — | Your Telegram chat ID |
-| `TELEGRAM_CHANNELS` | — | Extra channel IDs to monitor (comma-separated) |
-| `TELEGRAM_POLL_INTERVAL` | `5000` | Bot command polling interval (ms) |
-| `DISCORD_BOT_TOKEN` | disabled | For Discord alerts + slash commands |
-| `DISCORD_CHANNEL_ID` | — | Discord channel for alerts |
-| `DISCORD_GUILD_ID` | — | Server ID (instant slash command registration) |
-| `DISCORD_WEBHOOK_URL` | — | Webhook URL (alert-only fallback, no bot needed) |
+
+| Variable                   | Default              | Description                                                                             |
+| -------------------------- | -------------------- | --------------------------------------------------------------------------------------- |
+| `PORT`                     | `3117`               | Dashboard server port                                                                   |
+| `REFRESH_INTERVAL_MINUTES` | `15`                 | Auto-refresh interval                                                                   |
+| `LLM_PROVIDER`             | disabled             | `anthropic`, `openai`, `gemini`, `codex`, `openrouter`, `minimax`, `mistral`, or `grok` |
+| `LLM_API_KEY`              | —                    | API key (not needed for codex)                                                          |
+| `LLM_MODEL`                | per-provider default | Override model selection                                                                |
+| `TELEGRAM_BOT_TOKEN`       | disabled             | For Telegram alerts + bot commands                                                      |
+| `TELEGRAM_CHAT_ID`         | —                    | Your Telegram chat ID                                                                   |
+| `TELEGRAM_CHANNELS`        | —                    | Extra channel IDs to monitor (comma-separated)                                          |
+| `TELEGRAM_POLL_INTERVAL`   | `5000`               | Bot command polling interval (ms)                                                       |
+| `DISCORD_BOT_TOKEN`        | disabled             | For Discord alerts + slash commands                                                     |
+| `DISCORD_CHANNEL_ID`       | —                    | Discord channel for alerts                                                              |
+| `DISCORD_GUILD_ID`         | —                    | Server ID (instant slash command registration)                                          |
+| `DISCORD_WEBHOOK_URL`      | —                    | Webhook URL (alert-only fallback, no bot needed)                                        |
+
 
 Delta engine thresholds (how sensitive the system is to changes between sweeps) can be customized in `crucix.config.mjs` under the `delta.thresholds` section. The defaults are tuned to filter out noise while catching meaningful moves.
 
@@ -434,12 +473,14 @@ Delta engine thresholds (how sensitive the system is to changes between sweeps) 
 
 When running `npm run dev`:
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /` | Jarvis HUD dashboard |
-| `GET /api/data` | Current synthesized intelligence data (JSON) |
+
+| Endpoint          | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| `GET /`           | Jarvis HUD dashboard                            |
+| `GET /api/data`   | Current synthesized intelligence data (JSON)    |
 | `GET /api/health` | Server status, uptime, source count, LLM status |
-| `GET /events` | SSE stream for live push updates |
+| `GET /events`     | SSE stream for live push updates                |
+
 
 ---
 
@@ -450,15 +491,19 @@ When running `npm run dev`:
 This is a known issue where npm's script runner can swallow errors, particularly on Windows PowerShell. Try these in order:
 
 **1. Run Node directly (bypasses npm):**
+
 ```bash
 node --trace-warnings server.mjs
 ```
+
 This is functionally identical to `npm run dev` but gives you full error output.
 
 **2. Run the diagnostic script:**
+
 ```bash
 node diag.mjs
 ```
+
 This tests every import one by one, checks your Node.js version, and verifies port 3117 is available. It will tell you exactly what's failing.
 
 **3. Check if port 3117 is already in use:**
@@ -482,9 +527,11 @@ lsof -ti:3117 | xargs kill
 Then try starting again. You can also change the port by setting `PORT=3118` in your `.env` file.
 
 **4. Check Node.js version:**
+
 ```bash
 node --version
 ```
+
 Crucix requires Node.js 22 or later. If you have an older version, download the latest LTS from [nodejs.org](https://nodejs.org/).
 
 ### Dashboard shows empty panels after first start
@@ -504,6 +551,7 @@ Make sure both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set in `.env`. Th
 ### Discord bot not responding to slash commands
 
 Check these in order:
+
 1. Make sure `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` are set in `.env`
 2. Verify `discord.js` is installed: `npm ls discord.js`. If missing, run `npm install discord.js`
 3. If slash commands don't appear, set `DISCORD_GUILD_ID` — without it, global commands can take up to 1 hour to propagate. Guild-specific commands register instantly
@@ -517,12 +565,14 @@ Check these in order:
 
 The `docs/` folder contains dashboard screenshots referenced by this README:
 
-| File | Description |
-|------|-------------|
+
+| File                 | Description                                           |
+| -------------------- | ----------------------------------------------------- |
 | `docs/dashboard.png` | Full dashboard — hero image at the top of this README |
-| `docs/boot.png` | Cinematic boot sequence animation |
-| `docs/map.png` | D3 world map with marker types and flight arcs |
-| `docs/globe.png` | 3D WebGL globe view with atmosphere glow and markers |
+| `docs/boot.png`      | Cinematic boot sequence animation                     |
+| `docs/map.png`       | D3 world map with marker types and flight arcs        |
+| `docs/globe.png`     | 3D WebGL globe view with atmosphere glow and markers  |
+
 
 To update them: run the dashboard, wait for a sweep to complete, then use your browser's DevTools (`F12` → `Ctrl+Shift+P` → "Capture full size screenshot") or a tool like [LICEcap](https://www.cockos.com/licecap/) for GIFs.
 
@@ -545,14 +595,6 @@ For bugs and feature requests, please use GitHub Issues so discussion stays visi
 ---
 
 ## Star History
-
-<a href="https://www.star-history.com/?repos=calesthio%2FCrucix&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=calesthio/Crucix&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=calesthio/Crucix&type=date&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/image?repos=calesthio/Crucix&type=date&legend=top-left" />
-  </picture>
-</a>
 
 ---
 

@@ -158,6 +158,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .lower{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;align-items:flex-start}
 .lower .g-panel{min-width:0;box-sizing:border-box}
 .lower .lp-ticker{flex:1.2 1 240px;max-width:380px}
+.lower .lp-ticker-col{flex:1.2 1 240px;max-width:380px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.lower .lp-ticker-col .lp-ticker,.lower .lp-ticker-col .lp-local-ticker{flex:0 1 auto;max-width:none}
 .right-delta .delta-list{max-height:200px}
 .lower .lp-macro{flex:2.5 1 360px}
 .lower .lp-ideas{flex:1.5 1 300px}
@@ -254,6 +256,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .tk-src.anz{color:#80cbc4;border-color:rgba(128,203,196,0.3)}
 .tk-src.us{color:#90caf9;border-color:rgba(144,202,249,0.3)}
 .tk-src.other{color:#b0bec5;border-color:rgba(176,190,197,0.2)}
+.tk-src.fl{color:#ff8a65;border-color:rgba(255,138,101,0.35)}
+.tk-src.cust{color:#ce93d8;border-color:rgba(206,147,216,0.35)}
 .tk-head{font-size:11px;line-height:1.35;color:#c8d8d2;margin-top:3px}
 .tk-time{font-family:var(--mono);font-size:8px;color:var(--dim);margin-top:2px}
 
@@ -303,7 +307,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
   .map-hint{font-size:8px;right:8px}
   .map-legend{left:8px;right:8px;bottom:8px;gap:4px}
   .leg-item{font-size:8px}
-  .lower .lp-ticker,.lower .lp-osint,.lower .lp-macro,.lower .lp-ideas,.lower .lp-intel{flex:1 1 100%;max-width:none}
+  .lower .lp-ticker,.lower .lp-ticker-col,.lower .lp-osint,.lower .lp-macro,.lower .lp-ideas,.lower .lp-intel{flex:1 1 100%;max-width:none}
   .metrics-row{grid-template-columns:repeat(2,1fr)}
   .src-grid{grid-template-columns:repeat(2,1fr)}
   .glossary-panel{top:auto;right:0;left:0;bottom:0;width:100%;max-height:min(72vh,720px);border-left:none;border-right:none;border-bottom:none}
@@ -1461,12 +1465,26 @@ function renderLower(){
 
   const srcHtml=D.health.map(s=>`<div class="src-item"><div class="sd ${s.err?'err':'ok'}"></div><span>${s.n}</span></div>`).join('');
 
-  // NEWS TICKER — merges RSS + GDELT + Telegram into flowing cards (moved from right rail)
-  const feed = (D.newsFeed || []).slice(0, 20);
+  // NEWS TICKER — merges RSS + GDELT + Telegram + custom into flowing cards
+  // Split out Florida / local items into their own ticker below the main one.
+  const allFeed = (D.newsFeed || []);
+  const isLocalItem = n => {
+    if (!n) return false;
+    if (n.region === 'Florida') return true;
+    const h = (n.headline || '').toLowerCase();
+    return h.includes('jacksonville') || h.includes('clay county') || h.includes('middleburg')
+      || h.includes('orange park') || h.includes('fleming island') || h.includes('green cove springs')
+      || h.includes('tallahassee') || h.includes('florida');
+  };
+  const localFeed = allFeed.filter(isLocalItem).slice(0, 20);
+  const localKeys = new Set(localFeed.map(n => `${n.type}|${n.source}|${n.headline}|${n.timestamp}`));
+  const feed = allFeed.filter(n => !localKeys.has(`${n.type}|${n.source}|${n.headline}|${n.timestamp}`)).slice(0, 20);
   const srcClass = s => {
     if (!s) return 'other';
     const sl = s.toLowerCase();
-    // Africa-focused sources first (before generic DW/NYT)
+    // Local Florida sources first (high specificity)
+    if (sl.includes('news4jax') || sl.includes('first coast') || sl.includes('florida politics') || sl.includes('florida phoenix') || sl.includes('middleburg')) return 'fl';
+    // Africa-focused sources next (before generic DW/NYT)
     if (sl.includes('dw africa') || sl.includes('africa news') || sl.includes('nyt africa') || sl.includes('rfi')) return 'af';
     if (sl.includes('mercopress')) return 'sa';
     if (sl.includes('indian express') || sl.includes('the hindu')) return 'ind';
@@ -1481,13 +1499,16 @@ function renderLower(){
     if (sl.includes('nyt') || sl.includes('times')) return 'nyt';
     return 'other';
   };
-  const tickerCards = feed.map(n => {
+  const renderCard = n => {
     const sc = srcClass(n.source);
     const age = n.timestamp ? getAge(n.timestamp) : '';
     const urlAttr = n.url ? ` data-url="${String(n.url).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"` : '';
     return `<div class="tk-card ${n.urgent?'urgent':''} ${n.url?'clickable':''}"${urlAttr}><span class="tk-src ${sc}">${(n.source||'NEWS').substring(0,12)}</span><span class="tk-time">${age}</span><div class="tk-head">${cleanText(n.headline||'')}</div>${n.url?'<span class="tk-link">&#8599;</span>':''}</div>`;
-  }).join('');
+  };
+  const tickerCards = feed.map(renderCard).join('');
+  const localCards = localFeed.map(renderCard).join('');
   const tickerDuration = Math.max(20, feed.length * 2.5);
+  const localDuration = Math.max(20, localFeed.length * 2.5);
 
   // Leverageable Ideas (LLM-only feature)
   const hasIdeas = D.ideas && D.ideas.length > 0;
@@ -1513,6 +1534,13 @@ function renderLower(){
         <div class="ticker-track">${tickerCards}${lowPerfMode ? '' : tickerCards}</div>
       </div>
     </div>`;
+  const localTickerPanel = localFeed.length ? `<div class="g-panel lp-local-ticker" style="display:flex;flex-direction:column">
+      <div class="sec-head"><h3>${t('panels.localNewsTicker','Local News')}</h3><span class="badge" style="color:#ff8a65;border-color:rgba(255,138,101,0.4)">${t('badges.florida','FLORIDA')}</span><span class="badge">${localFeed.length} ${t('badges.items','ITEMS')}</span></div>
+      <div class="ticker-wrap" style="--ticker-duration:${localDuration}s">
+        <div class="ticker-track">${localCards}${lowPerfMode ? '' : localCards}</div>
+      </div>
+    </div>` : '';
+  const tickerColumn = `<div class="lp-ticker-col">${tickerPanel}${localTickerPanel}</div>`;
   const osintPanel = mobile ? buildOsintPanel('lp-osint', 240) : '';
   const macroPanel = `<div class="g-panel lp-macro">
       <div class="sec-head"><h3>${t('panels.macroMarkets','Macro + Markets')}</h3><span class="badge">${mkt.timestamp?t('badges.live','LIVE'):t('badges.delayed','DELAYED')}</span></div>
@@ -1590,7 +1618,7 @@ function renderLower(){
       ${intelHtml}
     </div>`;
 
-  document.getElementById('lowerGrid').innerHTML=`${tickerPanel}${osintPanel}${macroPanel}${ideasPanel}${intelPanel}`;
+  document.getElementById('lowerGrid').innerHTML=`${tickerColumn}${osintPanel}${macroPanel}${ideasPanel}${intelPanel}`;
 }
 
 // === RIGHT RAIL ===

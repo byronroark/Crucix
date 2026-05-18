@@ -49,8 +49,66 @@ export default {
   customSources: [
     // --- RSS feeds ---
     // { type: 'rss',       name: 'Reuters Politics', url: 'https://...rss', tier: 'ticker', region: 'Global', refreshMinutes: 30 },
-    { type: 'rss', name: 'Reuters World', url: 'https://www.reuters.com/arc/outboundfeeds/v3/category/world/?outputType=xml', tier: 'ticker', region: 'Global', refreshMinutes: 60 },
-
+    // 1. WJXT News4Jax — Local (covers Clay County: Orange Park, Fleming Island, Middleburg)
+    {
+      type: 'rss',
+      name: 'News4Jax Local',
+      url: 'https://www.news4jax.com/arc/outboundfeeds/rss/category/news/local/?outputType=xml&size=25',
+      tier: 'ticker',
+      region: 'Florida',
+      refreshMinutes: 20,
+      lat: 30.1797, lon: -81.7787,        // Orange Park, FL (Clay County seat-adjacent)
+      mapMaxItems: 8,
+      tags: ['local', 'jacksonville', 'clay-county'],
+    },
+    // 2. First Coast News (WTLV/WJXX) — Local Jax/Clay coverage
+    {
+      type: 'rss',
+      name: 'First Coast News Local',
+      url: 'https://www.firstcoastnews.com/feeds/syndication/rss/news/local',
+      tier: 'ticker',
+      region: 'Florida',
+      refreshMinutes: 20,
+      lat: 30.3322, lon: -81.6557,        // Jacksonville, FL
+      mapMaxItems: 8,
+      tags: ['local', 'jacksonville', 'clay-county'],
+    },
+    // 3. Florida Politics — best statewide political reporting (Tallahassee + legislature)
+    {
+      type: 'rss',
+      name: 'Florida Politics',
+      url: 'https://floridapolitics.com/feed/',
+      tier: 'analyzed',                    // tier: 'analyzed' so it feeds the Intel panel
+      region: 'Florida',
+      refreshMinutes: 30,
+      lat: 30.4383, lon: -84.2807,        // Tallahassee, FL
+      mapMaxItems: 6,
+      tags: ['florida', 'politics'],
+    },
+    // 4. Florida Phoenix — independent statewide policy/news (governance, courts, environment)
+    {
+      type: 'rss',
+      name: 'Florida Phoenix',
+      url: 'https://floridaphoenix.com/feed/',
+      tier: 'analyzed',
+      region: 'Florida',
+      refreshMinutes: 30,
+      lat: 30.4383, lon: -84.2807,
+      mapMaxItems: 6,
+      tags: ['florida', 'policy', 'investigative'],
+    },
+    // 5. News4Jax Politics — local + Tallahassee impact through a Jacksonville lens
+    {
+      type: 'rss',
+      name: 'News4Jax Politics',
+      url: 'https://www.news4jax.com/arc/outboundfeeds/rss/category/news/politics/?outputType=xml&size=25',
+      tier: 'ticker',
+      region: 'Florida',
+      refreshMinutes: 30,
+      lat: 30.3322, lon: -81.6557,
+      mapMaxItems: 5,
+      tags: ['florida', 'politics', 'local'],
+    },
     // --- Firecrawl scrapes (requires FIRECRAWL_API_KEY) ---
     // { type: 'firecrawl', name: 'Some News Page', url: 'https://example.com/news', tier: 'analyzed', region: 'Asia', refreshMinutes: 120,
     //   firecrawl: { formats: ['markdown'], onlyMainContent: true } },

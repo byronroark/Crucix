@@ -7,8 +7,8 @@ Add your own RSS feeds, scraped web pages (via [Firecrawl](https://firecrawl.dev
 ## TL;DR
 
 - Edit `customSources` in [crucix.config.mjs](crucix.config.mjs). Each entry has a `type` (`rss` / `firecrawl` / `http-json`) and a `tier`.
-- **`tier: 'ticker'`** -> joins the existing news ticker, no LLM cost.
-- **`tier: 'analyzed'`** -> saved into the sweep, fed to a separate "Intelligence Analysis" LLM panel.
+- `**tier: 'ticker'**` -> joins the existing news ticker, no LLM cost.
+- `**tier: 'analyzed'**` -> saved into the sweep, fed to a separate "Intelligence Analysis" LLM panel.
 - For anything weirder than the three built-in types, drop a `.mjs` file into [apis/sources/custom/](apis/sources/custom/) and it is auto-discovered.
 - Test one source live: `docker compose exec crucix npm run test:custom-source -- "Source Name"`
 
@@ -34,12 +34,16 @@ flowchart LR
   geo --> mapPts["D.customGeo -> Globe + flat map (purple)"]
 ```
 
+
+
 Two completely independent paths once an item is classified by tier:
 
-| Tier | Where it appears | LLM cost | Persisted to `runs/latest.json` |
-| ---- | ---------------- | -------- | ------------------------------- |
-| `ticker` | Live News Ticker card (and globe markers if you supply lat/lon) | None | Yes (under `data.sources.CustomFeeds.itemsTicker`) |
-| `analyzed` | Intelligence Analysis panel (LLM-summarized) | One call per sweep, ~2K tokens | Yes (under `data.sources.CustomFeeds.itemsAnalyzed`) |
+
+| Tier       | Where it appears                                                | LLM cost                       | Persisted to `runs/latest.json`                      |
+| ---------- | --------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------- |
+| `ticker`   | Live News Ticker card (and globe markers if you supply lat/lon) | None                           | Yes (under `data.sources.CustomFeeds.itemsTicker`)   |
+| `analyzed` | Intelligence Analysis panel (LLM-summarized)                    | One call per sweep, ~2K tokens | Yes (under `data.sources.CustomFeeds.itemsAnalyzed`) |
+
 
 The existing hardcoded RSS feed list in [dashboard/inject.mjs](dashboard/inject.mjs) is untouched. Custom sources layer **on top** of it.
 
@@ -124,12 +128,14 @@ Markdown content is fed to the Intel Analysis LLM (cap of 600 chars per item, 45
 
 With the default cap (`FIRECRAWL_MAX_PER_SWEEP=5`) and a 15-minute sweep cadence:
 
-| Sources scraped per sweep | Credits/day | Credits/month |
-| ------------------------- | ----------- | ------------- |
-| 1 source, `refreshMinutes: 60`   | ~24  | ~720  (over free tier) |
-| 1 source, `refreshMinutes: 120`  | ~12  | ~360  |
-| 1 source, `refreshMinutes: 240`  | ~6   | ~180  |
-| 5 sources, `refreshMinutes: 120` | ~60  | ~1800 (paid tier) |
+
+| Sources scraped per sweep        | Credits/day | Credits/month         |
+| -------------------------------- | ----------- | --------------------- |
+| 1 source, `refreshMinutes: 60`   | ~24         | ~720 (over free tier) |
+| 1 source, `refreshMinutes: 120`  | ~12         | ~360                  |
+| 1 source, `refreshMinutes: 240`  | ~6          | ~180                  |
+| 5 sources, `refreshMinutes: 120` | ~60         | ~1800 (paid tier)     |
+
 
 The on-disk cache (`runs/.cache/custom-feeds/`) is honored across container rebuilds because `runs/` is bind-mounted in [docker-compose.yml](docker-compose.yml).
 
@@ -273,11 +279,13 @@ Prints the resolved coordinates and a config-ready snippet. Results go into the 
 
 ### Where on the map
 
-| Layer | Color | Source |
-| ----- | ----- | ------ |
-| World News | `#81d4fa` light blue | Built-in RSS (`D.news`) |
-| OSINT Event | `#ffb84c` orange | Telegram urgent (hardcoded geo offsets) |
-| **Custom OSINT** | **`#ce93d8` purple** | **`D.customGeo` from your sources** |
+
+| Layer            | Color                | Source                                  |
+| ---------------- | -------------------- | --------------------------------------- |
+| World News       | `#81d4fa` light blue | Built-in RSS (`D.news`)                 |
+| OSINT Event      | `#ffb84c` orange     | Telegram urgent (hardcoded geo offsets) |
+| **Custom OSINT** | `**#ce93d8` purple** | `**D.customGeo` from your sources**     |
+
 
 A left-rail "Custom OSINT" layer row appears automatically when there are mapped items, showing `<markers> / <items total>`.
 
@@ -295,12 +303,14 @@ The "Intelligence Analysis" panel in the lower grid is fed by [lib/llm/intel-ana
 
 Panel states:
 
-| State | Reason | What to do |
-| ----- | ------ | ---------- |
-| `NO INPUT` | No analyzed-tier sources configured | Add a source with `tier: 'analyzed'` |
-| `LLM NOT CONFIGURED` | Analyzed items exist but no LLM | Set `LLM_PROVIDER` in `.env` |
-| `RETRY NEXT SWEEP` | LLM call failed last cycle | Usually transient; check logs |
-| `AI ENHANCED` (badge) | Working normally | nothing |
+
+| State                 | Reason                              | What to do                           |
+| --------------------- | ----------------------------------- | ------------------------------------ |
+| `NO INPUT`            | No analyzed-tier sources configured | Add a source with `tier: 'analyzed'` |
+| `LLM NOT CONFIGURED`  | Analyzed items exist but no LLM     | Set `LLM_PROVIDER` in `.env`         |
+| `RETRY NEXT SWEEP`    | LLM call failed last cycle          | Usually transient; check logs        |
+| `AI ENHANCED` (badge) | Working normally                    | nothing                              |
+
 
 Trade-ideas (the existing "Leverageable Ideas" panel) and Intel Analysis are completely separate pipelines. They share the LLM provider but use distinct prompts and budgets.
 
@@ -350,32 +360,36 @@ By design. Look in `runs/latest.json` -> `sources.CustomDropIns.errors` (or just
 
 ## Files involved
 
-| File | Role |
-| ---- | ---- |
-| [crucix.config.mjs](crucix.config.mjs) | Declarative `customSources` array + `firecrawl` + `geocode` blocks |
-| [apis/sources/custom-feeds.mjs](apis/sources/custom-feeds.mjs) | RSS / Firecrawl / HTTP-JSON dispatcher + cache |
-| [apis/sources/custom/index.mjs](apis/sources/custom/index.mjs) | Auto-discovery of drop-in `.mjs` modules |
-| [lib/llm/intel-analysis.mjs](lib/llm/intel-analysis.mjs) | LLM synthesis prompt + parsing |
-| [lib/geocode/index.mjs](lib/geocode/index.mjs) | Cascading coordinate resolver with disk cache |
-| [lib/geocode/keywords.mjs](lib/geocode/keywords.mjs) | Shared headline keyword map + region centers |
-| [lib/geocode/providers/google.mjs](lib/geocode/providers/google.mjs) | Google Geocoding API client |
-| [lib/geocode/providers/nominatim.mjs](lib/geocode/providers/nominatim.mjs) | OpenStreetMap Nominatim fallback |
-| [lib/geocode/build-custom-geo.mjs](lib/geocode/build-custom-geo.mjs) | Per-sweep batcher with budget + jitter |
-| [dashboard/inject.mjs](dashboard/inject.mjs) | Splits `customTicker` / `customAnalyzed` / `customGeo`, merges ticker into news feed |
-| [dashboard/public/jarvis.html](dashboard/public/jarvis.html) | Renders Intel panel, legend, globe + flat-map markers |
-| [scripts/test-custom-source.mjs](scripts/test-custom-source.mjs) | `npm run test:custom-source` debug helper |
-| [scripts/geocode-query.mjs](scripts/geocode-query.mjs) | `npm run geocode:query` CLI lookup |
+
+| File                                                                       | Role                                                                                 |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [crucix.config.mjs](crucix.config.mjs)                                     | Declarative `customSources` array + `firecrawl` + `geocode` blocks                   |
+| [apis/sources/custom-feeds.mjs](apis/sources/custom-feeds.mjs)             | RSS / Firecrawl / HTTP-JSON dispatcher + cache                                       |
+| [apis/sources/custom/index.mjs](apis/sources/custom/index.mjs)             | Auto-discovery of drop-in `.mjs` modules                                             |
+| [lib/llm/intel-analysis.mjs](lib/llm/intel-analysis.mjs)                   | LLM synthesis prompt + parsing                                                       |
+| [lib/geocode/index.mjs](lib/geocode/index.mjs)                             | Cascading coordinate resolver with disk cache                                        |
+| [lib/geocode/keywords.mjs](lib/geocode/keywords.mjs)                       | Shared headline keyword map + region centers                                         |
+| [lib/geocode/providers/google.mjs](lib/geocode/providers/google.mjs)       | Google Geocoding API client                                                          |
+| [lib/geocode/providers/nominatim.mjs](lib/geocode/providers/nominatim.mjs) | OpenStreetMap Nominatim fallback                                                     |
+| [lib/geocode/build-custom-geo.mjs](lib/geocode/build-custom-geo.mjs)       | Per-sweep batcher with budget + jitter                                               |
+| [dashboard/inject.mjs](dashboard/inject.mjs)                               | Splits `customTicker` / `customAnalyzed` / `customGeo`, merges ticker into news feed |
+| [dashboard/public/jarvis.html](dashboard/public/jarvis.html)               | Renders Intel panel, legend, globe + flat-map markers                                |
+| [scripts/test-custom-source.mjs](scripts/test-custom-source.mjs)           | `npm run test:custom-source` debug helper                                            |
+| [scripts/geocode-query.mjs](scripts/geocode-query.mjs)                     | `npm run geocode:query` CLI lookup                                                   |
+
 
 ---
 
 ## Related docs
 
-| Doc | Purpose |
-| --- | ------- |
-| [README.md](README.md) | Project overview |
-| [TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md) | Alert tiers, daily brief |
-| [DEPLOY_LINODE.md](DEPLOY_LINODE.md) | Run Crucix on a VPS |
+
+| Doc                                        | Purpose                      |
+| ------------------------------------------ | ---------------------------- |
+| [README.md](README.md)                     | Project overview             |
+| [TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md)   | Alert tiers, daily brief     |
+| [DEPLOY_LINODE.md](DEPLOY_LINODE.md)       | Run Crucix on a VPS          |
 | [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md) | Sync your fork with upstream |
+
 
 ---
 
