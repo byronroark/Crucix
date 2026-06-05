@@ -1,15 +1,231 @@
 # Telegram Alerts Guide
 
-How the Telegram alert system works, what it sends today, and how to tune cadence/content for personal use.
+Complete reference for Crucix Telegram alerts: initial setup, features, tuning, deployment, and troubleshooting.
 
 ---
 
 ## TL;DR
 
-- Alerts already fire automatically after every sweep (every `REFRESH_INTERVAL_MINUTES`, default 15).
-- The bot also answers commands: `/status`, `/sweep`, `/brief`, `/alerts`, `/mute`, `/unmute`, `/help`.
-- Send a manual test message any time with `npm run test:telegram`.
-- An optional scheduled daily brief can be enabled via one env var.
+- Alerts fire automatically after every sweep (every `REFRESH_INTERVAL_MINUTES`, default 15).
+- **LLM is optional** for alerts — rule-based evaluation runs when the LLM is off or fails.
+- The bot answers commands: `/status`, `/sweep`, `/brief`, `/alerts`, `/mute`, `/unmute`, `/help`.
+- Send a manual test any time: `npm run test:telegram` (or via Docker — see [Testing](#testing-the-wiring-end-to-end)).
+- Optional scheduled daily brief: set `TELEGRAM_DAILY_BRIEF_TIME` in `.env`.
+- **Run only one Crucix instance** per `TELEGRAM_CHAT_ID` or you get duplicate alerts.
+
+### In this doc
+
+| Section | Topics |
+| ------- | ------ |
+| [Setup plan](#setup-plan-zero-to-working) | BotFather, chat ID, `.env`, deploy, verify |
+| [Feature inventory](#feature-inventory) | Everything implemented in this fork |
+| [Configuration reference](#configuration-reference) | All env vars |
+| [How alerts get triggered](#how-alerts-get-triggered) | Pipeline diagram |
+| [Alert tiers](#alert-tiers) | FLASH / PRIORITY / ROUTINE |
+| [Bot commands](#bot-commands) | `/status`, `/mute`, etc. |
+| [Daily brief](#scheduled-daily-brief-opt-in) | Scheduled digest |
+| [Tuning recipes](#tuning-recipes) | Quieter / wider net presets |
+| [Troubleshooting](#troubleshooting) | Common failures |
+
+---
+
+## Setup plan (zero to working)
+
+Follow these steps once when wiring Telegram for the first time (Windows Docker, NUC, or Linode — same `.env` + same test commands).
+
+### Step 1 — Create the bot
+
+1. Open Telegram and message [@BotFather](https://t.me/BotFather).
+2. Send `/newbot`, pick a display name and username (must end in `bot`).
+3. Copy the **HTTP API token** BotFather returns (format: `123456789:ABCdef...`).
+
+Optional: `/setcommands` in BotFather is not required — Crucix registers commands scoped to your chat on startup.
+
+### Step 2 — Get your chat ID
+
+1. Message [@userinfobot](https://t.me/userinfobot) (or add your bot to a group and use a group-ID bot).
+2. Copy your numeric **Id** — e.g. `123456789` (not `@username`).
+
+For a **group** chat: add the bot to the group, send a message, then inspect updates:
+
+```bash
+curl "https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates"
+```
+
+Use the `chat.id` from the JSON (groups are negative numbers like `-1001234567890`).
+
+### Step 3 — Configure `.env`
+
+Copy [.env.example](.env.example) to `.env` if needed. Set:
+
+```ini
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI...
+TELEGRAM_CHAT_ID=123456789
+
+# Optional — daily digest at 7:00 AM Eastern
+TELEGRAM_DAILY_BRIEF_TIME=07:00
+TELEGRAM_DAILY_BRIEF_TZ=America/New_York
+
+# Optional — bot command poll interval (ms). Default 5000.
+TELEGRAM_POLL_INTERVAL=5000
+
+# Optional — extra Telegram channels for OSINT ingestion (comma-separated)
+# TELEGRAM_CHANNELS=
+```
+
+Rules:
+
+- **No inline comments on the same line as values** — Docker `env_file` treats `# comment` as part of the value.
+- `.env` is gitignored — never commit it.
+
+Values flow into [crucix.config.mjs](crucix.config.mjs) → `config.telegram` → [lib/alerts/telegram.mjs](lib/alerts/telegram.mjs).
+
+### Step 4 — Deploy and confirm startup logs
+
+**Docker (Windows, NUC, Linode):**
+
+```bash
+docker compose up -d --build
+docker compose logs -f crucix
+```
+
+Look for:
+
+```
+[Crucix] Telegram alerts enabled
+[Telegram] Bot command polling started
+[Crucix] Daily brief scheduled for 07:00 (America/New_York) — first fire at ...
+```
+
+If you only see `Telegram alerts enabled` but no polling line, the token may be invalid.
+
+### Step 5 — Verify delivery
+
+```bash
+docker compose exec crucix npm run test:telegram
+```
+
+You should receive a blue **ROUTINE** test message within a few seconds. Then send **`/status`** to the bot from Telegram — it should reply with uptime and source counts.
+
+### Step 6 — Cut over from another machine (important)
+
+If you move Crucix from a Windows PC to a NUC (or Linode), **stop the old instance first**:
+
+```bash
+docker compose down   # on the old host
+```
+
+Only one running instance should use the same `TELEGRAM_CHAT_ID`, or every sweep sends duplicate tiered alerts and daily briefs.
+
+---
+
+## Feature inventory
+
+Everything the Telegram integration provides in this fork:
+
+| Feature | Description | Requires LLM? |
+| ------- | ----------- | ------------- |
+| **Reactive tiered alerts** | FLASH / PRIORITY / ROUTINE after each sweep when delta signals qualify | No (LLM enhances when configured) |
+| **Rule-based fallback** | Deterministic tier logic when LLM is off or errors | No |
+| **Semantic dedup** | SHA-256 content hash; suppresses near-duplicate alerts for 4 hours | No |
+| **Per-tier rate limits** | Cooldown + max alerts per hour per tier | No |
+| **Signal memory** | Marks alerted signals in `runs/memory/` to avoid repeat pings | No |
+| **Two-way bot commands** | `/status`, `/sweep`, `/brief`, `/portfolio`, `/alerts`, `/mute`, `/unmute`, `/help` | No |
+| **Chat-scoped security** | Commands only accepted from `TELEGRAM_CHAT_ID` | No |
+| **Command menu registration** | `setMyCommands` scoped to your chat (not global discovery) | No |
+| **Scheduled daily brief** | Once-daily digest at `TELEGRAM_DAILY_BRIEF_TIME` + optional TZ | No |
+| **Long message splitting** | `/brief` and daily brief split at 4096 chars (Telegram limit) | No |
+| **Manual test script** | `npm run test:telegram [FLASH\|PRIORITY\|ROUTINE]` bypasses rate limits | No |
+| **Discord parity** | Same delta pipeline can mirror to Discord ([lib/alerts/discord.mjs](lib/alerts/discord.mjs)) | No |
+
+**Not yet implemented (fork roadmap):** custom OSINT source items triggering delta/Telegram alerts — see [README.md](README.md) fork roadmap.
+
+---
+
+## Configuration reference
+
+| Variable | Required | Default | Purpose |
+| -------- | -------- | ------- | ------- |
+| `TELEGRAM_BOT_TOKEN` | Yes | — | Bot API token from @BotFather |
+| `TELEGRAM_CHAT_ID` | Yes | — | Numeric chat or group ID |
+| `TELEGRAM_POLL_INTERVAL` | No | `5000` | Bot `getUpdates` poll interval (ms) |
+| `TELEGRAM_CHANNELS` | No | — | Extra OSINT channel IDs (comma-separated) for [apis/sources/telegram.mjs](apis/sources/telegram.mjs) |
+| `TELEGRAM_DAILY_BRIEF_TIME` | No | disabled | Daily digest time `HH:MM` (24h) |
+| `TELEGRAM_DAILY_BRIEF_TZ` | No | server TZ | IANA timezone for daily brief (e.g. `America/New_York`) |
+| `TELEGRAM_DAILY_BRIEF_RESPECT_MUTE` | No | `false` | If `true`, `/mute` also silences the daily brief |
+| `REFRESH_INTERVAL_MINUTES` | No | `15` | Sweep cadence (drives alert frequency) |
+| `LLM_PROVIDER` / `LLM_API_KEY` | No | disabled | Smarter tier decisions when set; not required for alerts |
+
+Delta thresholds (what becomes a “signal”) live in [crucix.config.mjs](crucix.config.mjs) under `config.delta.thresholds` — see [Tuning recipes](#tuning-recipes).
+
+---
+
+## Alert message format
+
+Tiered alerts use Telegram **Markdown** and look like this (example ROUTINE test):
+
+```
+🔵 CRUCIX ROUTINE
+
+Test alert from Crucix (ROUTINE)
+
+This is a manual test fired by `npm run test:telegram`. If you can read this,
+your bot token, chat ID, and network path are all working.
+
+Confidence: 🟢 HIGH
+Direction: MIXED
+Cross-correlation: test
+
+💡 Action: No action needed — this is a wiring test.
+
+Signals:
+• test_signal_alpha
+• test_signal_beta
+
+2026-05-18 04:12:33 UTC
+```
+
+| Tier | Emoji | Typical use |
+| ---- | ----- | ----------- |
+| FLASH | 🔴 | Nuclear anomaly, multi-domain critical events |
+| PRIORITY | 🟡 | Escalating clusters, OSINT surges |
+| ROUTINE | 🔵 | Single critical or multiple high-severity moves |
+
+---
+
+## Daily brief content
+
+The scheduled brief and `/brief` share [buildBriefBody()](server.mjs) and include:
+
+- Delta summary (risk-off / risk-on / mixed, change counts)
+- VIX, WTI, Brent, Gold, Silver, Nat Gas, HY spread
+- Top 2 urgent OSINT Telegram posts (if any)
+- Top 3 LLM trade ideas (if LLM enabled and ideas exist)
+
+The daily brief **does not** use tier rate limits. By default it **still fires when `/mute` is active** unless `TELEGRAM_DAILY_BRIEF_RESPECT_MUTE=true`.
+
+---
+
+## Deploying on a dedicated server (NUC / VPS)
+
+Same Telegram setup on any always-on host:
+
+1. Copy `.env` to the server (`scp .env user@host:~/Crucix/.env`).
+2. `docker compose up -d --build`
+3. `docker compose exec crucix npm run test:telegram`
+4. Stop any other Crucix instance using the same chat ID.
+
+See [DEPLOY_LINODE.md](DEPLOY_LINODE.md) for VPS hardening and SSH tunnel dashboard access. On a home NUC, open `http://<nuc-lan-ip>:3117` from your LAN instead.
+
+**Verify from the NUC:**
+
+```bash
+cd ~/Crucix
+docker compose exec crucix npm run test:telegram
+docker compose logs --tail=30 crucix | grep -i telegram
+```
+
+**Verify bot commands:** send `/status` from your phone — response should reflect the NUC uptime, not your old Windows instance.
 
 ---
 
@@ -269,18 +485,28 @@ That's the semantic-dedup window expiring after 4 hours. If you want longer, cha
 
 ## Files involved
 
-
-| File                                                   | Role                                                                     |
-| ------------------------------------------------------ | ------------------------------------------------------------------------ |
-| [lib/alerts/telegram.mjs](lib/alerts/telegram.mjs)     | `TelegramAlerter` class: evaluator, dedup, bot polling                   |
-| [lib/delta/engine.mjs](lib/delta/engine.mjs)           | `computeDelta`: produces the signals the alerter evaluates               |
-| [server.mjs](server.mjs)                               | Wires alerter into sweep loop, registers commands, daily brief scheduler |
-| [crucix.config.mjs](crucix.config.mjs)                 | Reads env vars into `config.telegram` and `config.delta`                 |
-| [scripts/test-telegram.mjs](scripts/test-telegram.mjs) | `npm run test:telegram` manual test sender                               |
-| [.env](.env)                                           | Bot token, chat ID, daily-brief settings (gitignored)                    |
-
+| File | Role |
+| ---- | ---- |
+| [lib/alerts/telegram.mjs](lib/alerts/telegram.mjs) | `TelegramAlerter`: tiers, dedup, rate limits, LLM + rule evaluators, bot polling |
+| [lib/delta/engine.mjs](lib/delta/engine.mjs) | `computeDelta`: produces signals the alerter evaluates |
+| [lib/delta/index.mjs](lib/delta/index.mjs) | `MemoryManager`: persists alerted-signal keys under `runs/memory/` |
+| [server.mjs](server.mjs) | Sweep loop, `evaluateAndAlert`, command handlers, `buildBriefBody`, `scheduleDailyBrief` |
+| [crucix.config.mjs](crucix.config.mjs) | Maps env → `config.telegram` and `config.delta.thresholds` |
+| [scripts/test-telegram.mjs](scripts/test-telegram.mjs) | `npm run test:telegram` — manual delivery test (bypasses rate limits) |
+| [apis/sources/telegram.mjs](apis/sources/telegram.mjs) | OSINT ingestion from Telegram channels (feeds delta, separate from alert bot) |
+| [.env.example](.env.example) | Template for all Telegram env vars |
+| [.env](.env) | Your secrets (gitignored — copy to each deployment host) |
 
 ---
+
+## Related docs
+
+| Doc | Purpose |
+| --- | ------- |
+| [DEPLOY_LINODE.md](DEPLOY_LINODE.md) | VPS deploy, SSH tunnel, `.env` via `scp` |
+| [CUSTOM_SOURCES.md](CUSTOM_SOURCES.md) | Custom OSINT feeds (ticker / Intel panel — not yet wired to Telegram delta) |
+| [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md) | Sync fork with upstream after doc/code updates |
+| [README.md](README.md) | Project overview and env var tables |
 
 ## After any change, rebuild
 

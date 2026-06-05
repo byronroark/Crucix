@@ -175,6 +175,8 @@ Crucix doubles as an interactive Telegram bot. Beyond sending alerts, it respond
 
 This requires `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. The bot polls for messages every 5 seconds (configurable via `TELEGRAM_POLL_INTERVAL`).
 
+**Full setup, tiers, tuning, and deployment:** see **[TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md)**.
+
 ### Discord Bot (Two-Way)
 
 Crucix also supports Discord as a full-featured bot with slash commands and rich embed alerts. It mirrors the Telegram bot's capabilities with Discord-native formatting.
@@ -546,7 +548,9 @@ OpenSky can also return `HTTP 429` when its public hotspots are queried too aggr
 
 ### Telegram bot not responding to commands
 
-Make sure both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set in `.env`. The bot only responds to messages from the configured chat ID (security measure). You should see `[Crucix] Telegram alerts enabled` and `[Crucix] Bot command polling started` in the server logs on startup. If not, double-check your token with `curl https://api.telegram.org/bot<YOUR_TOKEN>/getMe`.
+See **[TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md)** for the full setup plan, test commands, and troubleshooting.
+
+Make sure both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set in `.env`. The bot only responds to messages from the configured chat ID (security measure). You should see `[Crucix] Telegram alerts enabled` and `[Telegram] Bot command polling started` in the server logs on startup. If not, double-check your token with `curl https://api.telegram.org/bot<YOUR_TOKEN>/getMe`. Run `docker compose exec crucix npm run test:telegram` to verify delivery without waiting for a real signal.
 
 ### Discord bot not responding to slash commands
 
