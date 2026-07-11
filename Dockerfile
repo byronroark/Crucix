@@ -2,6 +2,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+# curl bypasses Cloudflare bot checks that block Node fetch to acleddata.com
+RUN apk add --no-cache curl
+
 # Copy package files first for better layer caching
 COPY package*.json ./
 RUN npm install --production

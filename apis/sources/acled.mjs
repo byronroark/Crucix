@@ -7,8 +7,12 @@
 // Data endpoint: GET https://acleddata.com/api/acled/read
 // Docs: https://acleddata.com/api-documentation/getting-started
 
+import { execFile, execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { mkdtemp, readFile, rm } from 'fs/promises';
+import { tmpdir } from 'os';
 import { dirname, join } from 'path';
+import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { daysAgo } from '../utils/fetch.mjs';
 import '../utils/env.mjs';
@@ -33,12 +37,140 @@ const ACLED_FETCH_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
+function isDebug() {
+  return process.argv.includes('--debug');
+}
+
+function debugLog(...args) {
+  if (isDebug()) console.error('[ACLED DEBUG]', ...args);
+}
+
+const execFileAsync = promisify(execFile);
+
+let curlAvailable = false;
+try {
+  execFileSync('curl', ['--version'], { stdio: 'ignore' });
+  curlAvailable = true;
+} catch {
+  curlAvailable = false;
+}
+
+function shouldUseCurl() {
+  const pref = String(process.env.ACLED_USE_CURL ?? '').trim().toLowerCase();
+  if (pref === '0' || pref === 'false' || pref === 'no') return false;
+  if (pref === '1' || pref === 'true' || pref === 'yes') return true;
+  return curlAvailable;
+}
+
+function parseCurlHeaderDump(headerText) {
+  const blocks = String(headerText || '').split(/\r?\n\r?\n/).filter((b) => /HTTP\//i.test(b));
+  const last = blocks[blocks.length - 1] || '';
+  const setCookies = [];
+  for (const line of last.split(/\r?\n/)) {
+    const m = line.match(/^set-cookie:\s*(.+)/i);
+    if (m) setCookies.push(m[1]);
+  }
+  return { setCookies };
+}
+
+async function acledRequestFetch(url, {
+  method = 'GET',
+  headers = {},
+  body = null,
+  timeoutMs = 15000,
+  followRedirects = true,
+} = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body ?? undefined,
+      redirect: followRedirects ? 'follow' : 'manual',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const text = await res.text().catch(() => '');
+    const setCookies = res.headers.getSetCookie?.() || [];
+    return { status: res.status, body: text, setCookies };
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw Object.assign(new Error('Request timed out'), { name: 'AbortError' });
+    throw e;
+  }
+}
+
+async function acledRequestCurl(url, {
+  method = 'GET',
+  headers = {},
+  body = null,
+  timeoutMs = 15000,
+  followRedirects = true,
+} = {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'acled-'));
+  const bodyFile = join(dir, 'body.txt');
+  const headerFile = join(dir, 'headers.txt');
+  const args = [
+    '-sS',
+    followRedirects ? '-L' : '--no-location',
+    '--max-time', String(Math.max(1, Math.ceil(timeoutMs / 1000))),
+    '-D', headerFile,
+    '-o', bodyFile,
+    '-w', '%{http_code}',
+  ];
+  if (method && method !== 'GET') args.push('-X', method);
+  for (const [key, value] of Object.entries(headers)) {
+    if (value != null && value !== '') args.push('-H', `${key}: ${value}`);
+  }
+  if (body != null) args.push('--data-binary', body);
+  args.push(url);
+
+  try {
+    const { stdout } = await execFileAsync('curl', args, {
+      timeout: timeoutMs + 5000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const status = Number.parseInt(String(stdout).trim(), 10) || 0;
+    const text = await readFile(bodyFile, 'utf8').catch(() => '');
+    const headerText = await readFile(headerFile, 'utf8').catch(() => '');
+    const { setCookies } = parseCurlHeaderDump(headerText);
+    return { status, body: text, setCookies };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** @returns {Promise<{ status: number, body: string, setCookies: string[] }>} */
+async function acledRequest(url, opts = {}) {
+  const viaCurl = shouldUseCurl();
+  if (viaCurl) {
+    debugLog(`HTTP ${opts.method || 'GET'} via curl`);
+    return acledRequestCurl(url, opts);
+  }
+
+  try {
+    const result = await acledRequestFetch(url, opts);
+    if (cloudflareHint(result.body) && curlAvailable) {
+      debugLog('Cloudflare blocked fetch — retrying via curl');
+      return acledRequestCurl(url, opts);
+    }
+    return result;
+  } catch (e) {
+    if (curlAvailable) {
+      debugLog(`fetch failed (${e.message}) — retrying via curl`);
+      return acledRequestCurl(url, opts);
+    }
+    throw e;
+  }
+}
+
 function cloudflareHint(raw) {
   const text = String(raw || '');
   if (/just a moment|cf-browser-verification|cloudflare/i.test(text)) {
     return 'Cloudflare bot challenge blocked this request from the server. '
-      + 'ACLED may be unreachable from this host/IP via automated fetch. '
-      + 'Try a residential network, or contact access@acleddata.com.';
+      + 'ACLED may be unreachable from this host/IP via Node fetch. '
+      + 'Set ACLED_USE_CURL=1 (Docker image includes curl) or contact access@acleddata.com.';
   }
   return null;
 }
@@ -135,14 +267,6 @@ let sessionCache = {
   refreshExpires: 0,
 };
 
-function isDebug() {
-  return process.argv.includes('--debug');
-}
-
-function debugLog(...args) {
-  if (isDebug()) console.error('[ACLED DEBUG]', ...args);
-}
-
 function emptySession() {
   sessionCache = {
     cookies: null,
@@ -203,34 +327,30 @@ function parseOAuthTokenResponse(data) {
 }
 
 async function postOAuthToken(body) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(TOKEN_URL, {
+    const { status, body: raw } = await acledRequest(TOKEN_URL, {
       method: 'POST',
       headers: {
         ...ACLED_FETCH_HEADERS,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: body.toString(),
-      signal: controller.signal,
+      timeoutMs: 15000,
     });
-    clearTimeout(timer);
 
-    const raw = await res.text().catch(() => '');
-    const parsed = parseAcledJson(raw, `OAuth token endpoint (HTTP ${res.status})`);
+    const parsed = parseAcledJson(raw, `OAuth token endpoint (HTTP ${status})`);
     if (parsed.error) return { error: parsed.error };
     const data = parsed.data;
 
-    if (!res.ok) {
+    if (status < 200 || status >= 300) {
       const msg = data?.error_description || data?.message || data?.error || raw.slice(0, 200);
-      return { error: `OAuth failed (HTTP ${res.status}): ${msg}` };
+      return { error: `OAuth failed (HTTP ${status}): ${msg}` };
     }
 
     return parseOAuthTokenResponse(data);
   } catch (e) {
-    clearTimeout(timer);
     const cause = e.cause ? ` → ${e.cause.message || e.cause.code || e.cause}` : '';
+    if (e.name === 'AbortError') return { error: 'OAuth error: Request timed out' };
     return { error: `OAuth error: ${e.message}${cause}` };
   }
 }
@@ -260,23 +380,19 @@ async function refreshOAuthToken(refreshToken) {
 // Lightweight read to confirm credentials can access ACLED data
 async function probeApiAccess(headers, label) {
   const params = new URLSearchParams({ _format: 'json', limit: '1' });
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(`${API_BASE}?${params}`, {
+    const { status, body: raw } = await acledRequest(`${API_BASE}?${params}`, {
       headers: { ...ACLED_FETCH_HEADERS, ...headers },
-      signal: controller.signal,
+      timeoutMs: 15000,
     });
-    clearTimeout(timer);
 
-    const raw = await res.text().catch(() => '');
-    const parsed = parseAcledJson(raw, `${label} probe (HTTP ${res.status})`);
+    const parsed = parseAcledJson(raw, `${label} probe (HTTP ${status})`);
     if (parsed.error) return { error: parsed.error };
     const data = parsed.data;
 
-    if (!res.ok) {
+    if (status < 200 || status >= 300) {
       const msg = data?.message || raw.slice(0, 200);
-      return { error: `${label} probe failed (HTTP ${res.status}): ${msg}` };
+      return { error: `${label} probe failed (HTTP ${status}): ${msg}` };
     }
 
     if (data?.status && data.status !== 200) {
@@ -289,7 +405,6 @@ async function probeApiAccess(headers, label) {
 
     return { ok: true };
   } catch (e) {
-    clearTimeout(timer);
     if (e.name === 'AbortError') return { error: `${label} probe timed out (15s)` };
     return { error: `${label} probe error: ${e.message}` };
   }
@@ -338,34 +453,29 @@ async function establishOAuthSession(tokenResult) {
 
 // Cookie-based session login (mirrors browser / Postman flow)
 async function loginCookie(email, password) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(LOGIN_URL, {
+    const { status, body: errText, setCookies } = await acledRequest(LOGIN_URL, {
       method: 'POST',
       headers: { ...ACLED_FETCH_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: email, pass: password }),
-      redirect: 'manual',
-      signal: controller.signal,
+      followRedirects: false,
+      timeoutMs: 15000,
     });
-    clearTimeout(timer);
 
-    const setCookies = res.headers.getSetCookie?.() || [];
-    const cookieStr = setCookies.map(c => c.split(';')[0]).join('; ');
+    const cookieStr = setCookies.map((c) => c.split(';')[0]).join('; ');
 
-    if (res.ok && cookieStr) {
+    if (status >= 200 && status < 300 && cookieStr) {
       return { cookies: cookieStr };
     }
 
-    if (res.status >= 300 && res.status < 400 && cookieStr) {
+    if (status >= 300 && status < 400 && cookieStr) {
       return { cookies: cookieStr };
     }
 
-    const errText = await res.text().catch(() => '');
-    return { error: `Cookie login failed (HTTP ${res.status}): ${errText.slice(0, 200)}` };
+    return { error: `Cookie login failed (HTTP ${status}): ${errText.slice(0, 200)}` };
   } catch (e) {
-    clearTimeout(timer);
     const cause = e.cause ? ` → ${e.cause.message || e.cause.code || e.cause}` : '';
+    if (e.name === 'AbortError') return { error: 'Cookie login error: Request timed out' };
     return { error: `Cookie login error: ${e.message}${cause}` };
   }
 }
@@ -488,20 +598,11 @@ function authHeaders(session) {
 }
 
 async function fetchAcledData(url, session) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
-  try {
-    const res = await fetch(url, {
-      headers: authHeaders(session),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    const errText = await res.text().catch(() => '');
-    return { res, errText };
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
-  }
+  const { status, body } = await acledRequest(url, {
+    headers: authHeaders(session),
+    timeoutMs: 25000,
+  });
+  return { status, errText: body };
 }
 
 // Event type constants
@@ -540,43 +641,43 @@ export async function getEvents(opts = {}) {
   const url = `${API_BASE}?${params}`;
 
   try {
-    let { res, errText } = await fetchAcledData(url, session);
-    debugLog(`Data response: HTTP ${res.status}`);
+    let { status, errText } = await fetchAcledData(url, session);
+    debugLog(`Data response: HTTP ${status}`);
 
     // On 401, invalidate access token and retry once (refresh or password grant)
-    if (res.status === 401 && session.method === 'oauth') {
+    if (status === 401 && session.method === 'oauth') {
       debugLog('Data request 401 — re-authenticating');
       invalidateAccessToken();
       session = await authenticate();
       if (session.error) {
         return { error: `ACLED re-auth after 401 failed: ${session.error}` };
       }
-      ({ res, errText } = await fetchAcledData(url, session));
-      debugLog(`Retry data response: HTTP ${res.status}`);
+      ({ status, errText } = await fetchAcledData(url, session));
+      debugLog(`Retry data response: HTTP ${status}`);
     }
 
-    if (!res.ok) {
+    if (status < 200 || status >= 300) {
       if (isDebug()) debugLog(`Error body: ${errText.slice(0, 500)}`);
       const cf = cloudflareHint(errText);
       if (cf) {
         emptySession();
-        return { error: `ACLED blocked by Cloudflare (HTTP ${res.status}, auth method: ${session.method}). ${cf}` };
+        return { error: `ACLED blocked by Cloudflare (HTTP ${status}, auth method: ${session.method}). ${cf}` };
       }
-      if (res.status === 401 || res.status === 403) {
+      if (status === 401 || status === 403) {
         emptySession();
-        const hint = res.status === 403
+        const hint = status === 403
           ? '\n→ Fix: Log in at https://acleddata.com/user/login, then:\n'
             + '  1. Accept Terms of Use (profile → Terms of Use button → check the box)\n'
             + '  2. Complete all required profile fields\n'
             + '  3. Ensure your account has the "API" access group\n'
             + '  Contact access@acleddata.com if issues persist.'
           : '';
-        return { error: `ACLED data access denied (HTTP ${res.status}, auth method: ${session.method}). Response: ${errText.slice(0, 300)}${hint}` };
+        return { error: `ACLED data access denied (HTTP ${status}, auth method: ${session.method}). Response: ${errText.slice(0, 300)}${hint}` };
       }
-      return { error: `HTTP ${res.status}: ${errText.slice(0, 200)}` };
+      return { error: `HTTP ${status}: ${errText.slice(0, 200)}` };
     }
 
-    const parsed = parseAcledJson(errText, `ACLED data (HTTP ${res.status})`);
+    const parsed = parseAcledJson(errText, `ACLED data (HTTP ${status})`);
     if (parsed.error) return { error: parsed.error };
     const data = parsed.data;
 

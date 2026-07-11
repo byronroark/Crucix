@@ -18,6 +18,9 @@ if (!hasToken && !hasPassword) {
 }
 
 console.log('[test-acled] Authenticating...');
+if (debug) {
+  console.log(`[test-acled] ACLED_USE_CURL=${process.env.ACLED_USE_CURL ?? '(auto)'}`);
+}
 const session = await authenticate();
 if (session.error) {
   console.error('[test-acled] FAIL:', session.error);
