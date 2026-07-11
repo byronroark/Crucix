@@ -46,6 +46,9 @@ export default {
   //   mapMaxItems      -> cap markers per source on the globe (default 15)
   //
   // See CUSTOM_SOURCES.md for full schema and examples.
+  // User-added sources via the dashboard UI are stored separately at customSourcesUserFile.
+  customSourcesUserFile: process.env.CUSTOM_SOURCES_USER_FILE || 'runs/config/custom-sources.json',
+
   customSources: [
     // --- RSS feeds ---
     // { type: 'rss',       name: 'Reuters Politics', url: 'https://...rss', tier: 'ticker', region: 'Global', refreshMinutes: 30 },
@@ -73,24 +76,24 @@ export default {
       mapMaxItems: 8,
       tags: ['local', 'jacksonville', 'clay-county'],
     },
-    // 3. Florida Politics — best statewide political reporting (Tallahassee + legislature)
+    // 3. Florida Politics — statewide political reporting (local news ticker)
     {
       type: 'rss',
       name: 'Florida Politics',
       url: 'https://floridapolitics.com/feed/',
-      tier: 'analyzed',                    // tier: 'analyzed' so it feeds the Intel panel
+      tier: 'ticker',
       region: 'Florida',
       refreshMinutes: 30,
       lat: 30.4383, lon: -84.2807,        // Tallahassee, FL
       mapMaxItems: 6,
       tags: ['florida', 'politics'],
     },
-    // 4. Florida Phoenix — independent statewide policy/news (governance, courts, environment)
+    // 4. Florida Phoenix — independent statewide policy/news (local news ticker)
     {
       type: 'rss',
       name: 'Florida Phoenix',
       url: 'https://floridaphoenix.com/feed/',
-      tier: 'analyzed',
+      tier: 'ticker',
       region: 'Florida',
       refreshMinutes: 30,
       lat: 30.4383, lon: -84.2807,
@@ -137,6 +140,35 @@ export default {
   geocode: {
     apiKey: process.env.GOOGLE_GEOCODING_API_KEY || null,
   },
+
+  // Multi-pool Intelligence Analysis — built-in OSINT + optional custom analyzed RSS
+  intelAnalysis: {
+    enabled: true,
+    maxInputChars: 8000,
+    minPoolsForRun: 2,
+    pools: {
+      gdelt: 6,
+      telegram: 5,
+      who: 4,
+      acled: 4,
+      delta: 5,
+      noaa: 3,
+      news: 4,
+      reliefweb: 4,
+      cisa: 4,
+      cloudflare: 3,
+      patents: 3,
+      bluesky: 4,
+      reddit: 4,
+      sanctions: 4,
+      adsb: 3,
+      customAnalyzed: 4,
+      defense: 3,
+    },
+  },
+
+  // Dashboard admin token — required for POST/PUT/DELETE on /api/config/sources when set
+  adminToken: process.env.ADMIN_TOKEN || null,
 
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
   // Set to null to use built-in defaults.

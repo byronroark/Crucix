@@ -10,6 +10,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import config from '../crucix.config.mjs';
+import { loadMergedSources } from '../lib/config/custom-sources-store.mjs';
 import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
 import { geoTagText, RSS_SOURCE_FALLBACKS } from '../lib/geocode/keywords.mjs';
@@ -451,7 +452,8 @@ export async function synthesize(data) {
     byType: acledData.byType || {},
     deadliestEvents: (acledData.deadliestEvents || []).slice(0, 15).map(e => ({
       date: e.date, type: e.type, country: e.country, location: e.location,
-      fatalities: e.fatalities || 0, lat: e.lat || null, lon: e.lon || null
+      fatalities: e.fatalities || 0, lat: e.lat || null, lon: e.lon || null,
+      notes: e.notes?.substring?.(0, 200) || '',
     }))
   };
 
@@ -464,9 +466,75 @@ export async function synthesize(data) {
     health: (gdeltData.health || []).length,
     crisis: (gdeltData.crisis || []).length,
     topTitles: (gdeltData.allArticles || []).slice(0, 5).map(a => a.title?.substring(0, 80)),
+    articles: (gdeltData.allArticles || []).slice(0, 20).map(a => ({
+      title: a.title?.substring(0, 200),
+      domain: a.domain,
+      country: a.country,
+      date: a.date,
+    })),
     geoPoints: (gdeltData.geoPoints || []).slice(0, 20).map(p => ({
       lat: p.lat, lon: p.lon, name: (p.name || '').substring(0, 80), count: p.count || 1
     }))
+  };
+
+  // Phase-2 intel sources (fetched in briefing but previously not in V2)
+  const rwData = data.sources.ReliefWeb || {};
+  const reliefweb = {
+    latestReports: (rwData.latestReports || []).slice(0, 10),
+    activeDisasters: (rwData.activeDisasters || []).slice(0, 10),
+    hdxDatasets: (rwData.hdxDatasets || []).slice(0, 8),
+    source: rwData.source || null,
+  };
+
+  const cisaData = data.sources['CISA-KEV'] || {};
+  const cisa = {
+    catalogVersion: cisaData.catalogVersion || null,
+    summary: cisaData.summary || null,
+    vulnerabilities: (cisaData.vulnerabilities || []).slice(0, 10),
+    signals: cisaData.signals || [],
+  };
+
+  const cfData = data.sources['Cloudflare-Radar'] || {};
+  const cloudflare = {
+    outages: {
+      total: cfData.outages?.total || 0,
+      active: cfData.outages?.active || 0,
+      activeEvents: (cfData.outages?.activeEvents || []).slice(0, 10),
+      topAffectedLocations: (cfData.outages?.topAffectedLocations || []).slice(0, 8),
+    },
+    anomalies: { total: cfData.anomalies?.total || 0 },
+    signals: cfData.signals || [],
+    status: cfData.status || null,
+  };
+
+  const patentsData = data.sources.Patents || {};
+  const patents = {
+    totalFound: patentsData.totalFound || 0,
+    recentPatents: patentsData.recentPatents || {},
+    signals: patentsData.signals || [],
+    domains: patentsData.domains || {},
+  };
+
+  const blueskyData = data.sources.Bluesky || {};
+  const bluesky = { topics: blueskyData.topics || {} };
+
+  const redditData = data.sources.Reddit || {};
+  const reddit = { subreddits: redditData.subreddits || {} };
+
+  const osData = data.sources.OpenSanctions || {};
+  const ofacData = data.sources.OFAC || {};
+  const sanctions = {
+    recentSearches: (osData.recentSearches || []).slice(0, 8),
+    totalSanctionedEntities: osData.totalSanctionedEntities || 0,
+    ofacSamples: (ofacData.sampleEntries || []).slice(0, 8),
+    ofacLastUpdated: ofacData.lastUpdated || null,
+  };
+
+  const adsbData = data.sources['ADS-B'] || {};
+  const adsb = {
+    status: adsbData.status || null,
+    totalMilitary: adsbData.totalMilitary || 0,
+    signals: adsbData.signals || [],
   };
 
   const health = Object.entries(data.sources).map(([name, src]) => ({
@@ -545,7 +613,7 @@ export async function synthesize(data) {
   try {
     customGeo = await buildCustomGeo(
       [...customTicker, ...customAnalyzed],
-      Array.isArray(config.customSources) ? config.customSources : []
+      loadMergedSources()
     );
   } catch (err) {
     console.error('[Crucix] buildCustomGeo failed:', err.message);
@@ -564,11 +632,13 @@ export async function synthesize(data) {
     sdr: { total: sdrNet.totalReceivers || 0, online: sdrNet.online || 0, zones: sdrZones },
     tg: { posts: tgData.totalPosts || 0, urgent: tgUrgent, topPosts: tgTop },
     who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news,
+    reliefweb, cisa, cloudflare, patents, bluesky, reddit, sanctions, adsb,
     markets, // Live Yahoo Finance market data
     ideas: [], ideasSource: 'disabled',
     // Custom user-defined sources (config + drop-in modules)
     customTicker, customAnalyzed, customGeo,
-    intelAnalysis: [], intelAnalysisSource: customAnalyzed.length ? 'pending' : 'no-input',
+    customFeedErrors: cf.errors || [],
+    intelAnalysis: [], intelAnalysisSource: config.llm?.provider ? 'pending' : 'disabled',
     // newsFeed for ticker (merged RSS + GDELT + Telegram + custom-ticker)
     newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop, customTicker),
   };

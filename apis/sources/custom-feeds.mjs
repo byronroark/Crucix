@@ -17,6 +17,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { safeFetch } from '../utils/fetch.mjs';
 import config from '../../crucix.config.mjs';
+import { loadMergedSources } from '../../lib/config/custom-sources-store.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
@@ -33,7 +34,7 @@ export async function briefing() {
 }
 
 export async function collect(opts = {}) {
-  const sources = Array.isArray(config.customSources) ? config.customSources : [];
+  const sources = loadMergedSources();
   const ignoreCache = Boolean(opts.ignoreCache);
   const onlyName = opts.onlyName || null;
 
@@ -147,6 +148,14 @@ async function fetchSource(src) {
 }
 
 // ─── RSS ─────────────────────────────────────────────────────────────────────
+
+/** Test an RSS URL without persisting — used by the dashboard Sources settings UI. */
+export async function testRssFeed(url) {
+  const src = normalizeSource({ type: 'rss', name: 'Test Feed', url, tier: 'ticker' });
+  if (src?._invalid) throw new Error(src._invalid);
+  const items = await fetchRSS(src);
+  return items.slice(0, 5).map(it => ({ title: it.title, timestamp: it.timestamp }));
+}
 
 async function fetchRSS(src) {
   const res = await fetch(src.url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { 'User-Agent': 'Crucix/1.0' } });

@@ -1,11 +1,5 @@
 #!/usr/bin/env node
-// End-to-end test for Intelligence Analysis (custom tier:'analyzed' sources + LLM).
-//
-// Usage:
-//   npm run test:intel-analysis
-//
-// Loads runs/latest.json, synthesizes, and runs generateIntelAnalysis with
-// verbose output so you can see whether the failure is input, API, or parsing.
+// End-to-end test for multi-pool Intelligence Analysis.
 
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
@@ -13,7 +7,7 @@ import { fileURLToPath } from 'url';
 import config from '../crucix.config.mjs';
 import { createLLMProvider } from '../lib/llm/index.mjs';
 import { synthesize } from '../dashboard/inject.mjs';
-import { generateIntelAnalysis } from '../lib/llm/intel-analysis.mjs';
+import { generateIntelAnalysis, hasIntelInput, harvestIntelItems } from '../lib/llm/intel-analysis.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const latestPath = join(ROOT, 'runs', 'latest.json');
@@ -33,35 +27,33 @@ console.log(`[test-intel] Provider: ${provider.name} (${provider.model})`);
 
 const raw = JSON.parse(readFileSync(latestPath, 'utf8'));
 const synthesized = await synthesize(raw);
-const analyzed = synthesized.customAnalyzed || [];
+const harvest = harvestIntelItems(synthesized, config);
 
-console.log(`[test-intel] customAnalyzed items: ${analyzed.length}`);
-if (!analyzed.length) {
-  console.error('[test-intel] No tier:"analyzed" items — add sources in crucix.config.mjs or check CustomFeeds errors');
+console.log('[test-intel] Pool harvest counts:');
+for (const [pool, count] of Object.entries(harvest.poolCounts).sort()) {
+  if (count > 0) console.log(`  ${pool}: ${count}`);
+}
+
+if (!hasIntelInput(synthesized, config)) {
+  console.error('[test-intel] Not enough active intel pools (need minPoolsForRun with data)');
   process.exit(2);
 }
 
-const contentChars = analyzed.reduce((n, i) => n + (i.content?.length || 0), 0);
-console.log(`[test-intel] Total content chars: ${contentChars}${contentChars < 200 ? ' (WEAK — RSS may be headline-only)' : ''}`);
-console.log(`[test-intel] Sample titles:`);
-for (const it of analyzed.slice(0, 3)) {
-  console.log(`  - [${it.name}] ${(it.title || '').substring(0, 80)}`);
-}
-
+console.log(`\n[test-intel] customAnalyzed items: ${(synthesized.customAnalyzed || []).length} (optional)`);
 console.log('\n[test-intel] Calling generateIntelAnalysis...');
 const t0 = Date.now();
-const intel = await generateIntelAnalysis(provider, synthesized);
+const intel = await generateIntelAnalysis(provider, synthesized, config);
 const ms = Date.now() - t0;
 
 if (!intel?.length) {
-  console.error(`\n[test-intel] FAIL (${ms}ms) — returned null or empty. Check logs above for parse preview.`);
-  console.error('Tip: pin LLM_MODEL to a JSON-friendly model, e.g. openai/gpt-4o-mini or anthropic/claude-sonnet-4');
+  console.error(`\n[test-intel] FAIL (${ms}ms) — returned null or empty.`);
   process.exit(1);
 }
 
 console.log(`\n[test-intel] OK (${ms}ms) — ${intel.length} items:\n`);
 for (const it of intel) {
   console.log(`  [${it.confidence}] ${it.title}`);
+  console.log(`    sources: ${(it.sources || []).join(', ')}`);
   console.log(`    ${it.summary.substring(0, 120)}...`);
   console.log('');
 }

@@ -6,9 +6,11 @@ Add your own RSS feeds, scraped web pages (via [Firecrawl](https://firecrawl.dev
 
 ## TL;DR
 
-- Edit `customSources` in [crucix.config.mjs](crucix.config.mjs). Each entry has a `type` (`rss` / `firecrawl` / `http-json`) and a `tier`.
-- `**tier: 'ticker'**` -> joins the existing news ticker, no LLM cost.
-- `**tier: 'analyzed'**` -> saved into the sweep, fed to a separate "Intelligence Analysis" LLM panel.
+- **Dashboard UI:** click **Sources** in the top bar to add/edit/delete RSS feeds (stored in `runs/config/custom-sources.json`). Set `ADMIN_TOKEN` in `.env` to protect writes.
+- Seed feeds (Florida local news) live in `customSources` in [crucix.config.mjs](crucix.config.mjs) and are read-only in the UI.
+- Each entry has a `type` (`rss` / `firecrawl` / `http-json`) and a `tier`.
+- **`tier: 'ticker'`** → joins the news ticker, no LLM cost.
+- **`tier: 'analyzed'`** → optional input to the multi-pool Intelligence Analysis LLM (alongside GDELT, WHO, ACLED, etc.).
 - For anything weirder than the three built-in types, drop a `.mjs` file into [apis/sources/custom/](apis/sources/custom/) and it is auto-discovered.
 - Test one source live: `docker compose exec crucix npm run test:custom-source -- "Source Name"`
 
@@ -42,10 +44,22 @@ Two completely independent paths once an item is classified by tier:
 | Tier       | Where it appears                                                | LLM cost                       | Persisted to `runs/latest.json`                      |
 | ---------- | --------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------- |
 | `ticker`   | Live News Ticker card (and globe markers if you supply lat/lon) | None                           | Yes (under `data.sources.CustomFeeds.itemsTicker`)   |
-| `analyzed` | Intelligence Analysis panel (LLM-summarized)                    | One call per sweep, ~2K tokens | Yes (under `data.sources.CustomFeeds.itemsAnalyzed`) |
+| `analyzed` | Optional input to Intelligence Analysis multi-pool LLM | One call per sweep (shared budget) | Yes (under `data.sources.CustomFeeds.itemsAnalyzed`) |
 
 
 The existing hardcoded RSS feed list in [dashboard/inject.mjs](dashboard/inject.mjs) is untouched. Custom sources layer **on top** of it.
+
+---
+
+## Managing sources from the dashboard
+
+1. Open the Crucix dashboard and click **Sources** in the top bar.
+2. Paste **Name** + **RSS URL**, choose **Tier** (`ticker` or `analyzed`), optional region/tags.
+3. Click **Test feed** to preview headlines, then **Save**.
+4. Built-in Florida feeds show a **BUILT-IN** tag and cannot be edited or deleted from the UI.
+5. User-added feeds persist in `runs/config/custom-sources.json` (bind-mounted in Docker).
+
+When `ADMIN_TOKEN` is set in `.env`, paste it once into the modal's admin token field (stored in browser `sessionStorage` for the session). All save/delete/test requests send `Authorization: Bearer <token>`.
 
 ---
 
@@ -293,12 +307,12 @@ A left-rail "Custom OSINT" layer row appears automatically when there are mapped
 
 ## How the Intelligence Analysis panel works
 
-The "Intelligence Analysis" panel in the lower grid is fed by [lib/llm/intel-analysis.mjs](lib/llm/intel-analysis.mjs).
+The "Intelligence Analysis" panel is fed by [lib/llm/intel-analysis.mjs](lib/llm/intel-analysis.mjs) via [lib/llm/intel-input.mjs](lib/llm/intel-input.mjs).
 
-- Runs **after** every sweep.
-- Skipped entirely if `LLM_PROVIDER` is not set OR if `customAnalyzed` is empty.
-- Sends up to the 12 most-recent analyzed items (sorted by `timestamp` desc), capped at 4500 chars total of context.
-- Adds a small DELTA_SUMMARY block so the model can weight recently changing topics higher.
+- Runs **after** every sweep when `LLM_PROVIDER` is set and at least **2 intel pools** have fresh input (`intelAnalysis.minPoolsForRun` in config).
+- Harvests rich-text items from built-in pools: GDELT, Telegram, WHO, ACLED, delta signals, NOAA, ReliefWeb, CISA-KEV, Cloudflare, Patents, Bluesky, Reddit, sanctions, ADS-B, built-in RSS, and optional `tier: 'analyzed'` custom RSS (up to 4 items).
+- Caps per-pool via `intelAnalysis.pools` in [crucix.config.mjs](crucix.config.mjs).
+- Requires the model to cite **at least 3 different source pools** in each sweep's output.
 - Returns 3-6 standalone intelligence items with `title`, `summary`, `region`, `confidence`, `tags`, `sources`.
 
 Panel states:
@@ -306,8 +320,8 @@ Panel states:
 
 | State                 | Reason                              | What to do                           |
 | --------------------- | ----------------------------------- | ------------------------------------ |
-| `NO INPUT`            | No analyzed-tier sources configured | Add a source with `tier: 'analyzed'` |
-| `LLM NOT CONFIGURED`  | Analyzed items exist but no LLM     | Set `LLM_PROVIDER` in `.env`         |
+| `NO OSINT INPUT`      | Fewer than 2 pools with data        | Wait for next sweep or add RSS via **Sources** |
+| `LLM NOT CONFIGURED`  | No LLM                              | Set `LLM_PROVIDER` in `.env`         |
 | `RETRY NEXT SWEEP`    | LLM call failed last cycle          | Usually transient; check logs        |
 | `AI ENHANCED` (badge) | Working normally                    | nothing                              |
 

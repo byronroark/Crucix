@@ -14,7 +14,14 @@ import { synthesize, generateIdeas } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
-import { generateIntelAnalysis } from './lib/llm/intel-analysis.mjs';
+import { generateIntelAnalysis, hasIntelInput, harvestIntelItems } from './lib/llm/intel-analysis.mjs';
+import { collect as collectCustomFeeds, testRssFeed } from './apis/sources/custom-feeds.mjs';
+import {
+  listSources,
+  addSource,
+  updateSource,
+  deleteSource,
+} from './lib/config/custom-sources-store.mjs';
 import { TelegramAlerter } from './lib/alerts/telegram.mjs';
 import { DiscordAlerter } from './lib/alerts/discord.mjs';
 
@@ -24,7 +31,7 @@ const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
 // Ensure directories exist
-for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, '.cache', 'custom-feeds'), join(RUNS_DIR, '.cache', 'geocode')]) {
+for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, 'config'), join(RUNS_DIR, '.cache', 'custom-feeds'), join(RUNS_DIR, '.cache', 'geocode')]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
@@ -294,6 +301,7 @@ if (discordAlerter.isConfigured) {
 
 // === Express Server ===
 const app = express();
+app.use(express.json({ limit: '64kb' }));
 app.use(express.static(join(ROOT, 'dashboard/public')));
 
 // Serve loading page until first sweep completes, then the dashboard with injected locale
@@ -311,6 +319,90 @@ app.get('/', (req, res) => {
     
     res.type('html').send(html);
   }
+});
+
+// === Custom Sources API (dashboard settings UI) ===
+
+function requireAdmin(req, res, next) {
+  const token = config.adminToken;
+  if (!token) return next();
+  const auth = req.headers.authorization || '';
+  if (auth === `Bearer ${token}`) return next();
+  return res.status(401).json({ error: 'Unauthorized — set Authorization: Bearer <ADMIN_TOKEN>' });
+}
+
+function feedStatusFromData() {
+  const map = {};
+  for (const e of (currentData?.customFeedErrors || [])) {
+    if (e?.name) map[e.name] = { ok: false, error: e.error };
+  }
+  return map;
+}
+
+async function hotRefreshCustomSources() {
+  const latestPath = join(RUNS_DIR, 'latest.json');
+  if (!existsSync(latestPath) || sweepInProgress) return false;
+  try {
+    const raw = JSON.parse(readFileSync(latestPath, 'utf8'));
+    raw.sources.CustomFeeds = await collectCustomFeeds({ ignoreCache: true });
+    const synthesized = await synthesize(raw);
+    if (currentData) {
+      synthesized.delta = currentData.delta;
+      synthesized.ideas = currentData.ideas || [];
+      synthesized.ideasSource = currentData.ideasSource;
+      synthesized.intelAnalysis = currentData.intelAnalysis || [];
+      synthesized.intelAnalysisSource = currentData.intelAnalysisSource;
+    }
+    currentData = synthesized;
+    broadcast({ type: 'update', data: currentData });
+    return true;
+  } catch (err) {
+    console.error('[Crucix] Hot refresh after source change failed:', err.message);
+    return false;
+  }
+}
+
+app.get('/api/config/sources', (req, res) => {
+  const cf = currentData?.health ? feedStatusFromData() : {};
+  res.json({ sources: listSources(cf), adminRequired: Boolean(config.adminToken) });
+});
+
+app.post('/api/config/sources/test', requireAdmin, async (req, res) => {
+  const url = req.body?.url;
+  if (!url) return res.status(400).json({ error: 'url is required' });
+  try {
+    const samples = await testRssFeed(url);
+    res.json({ ok: true, samples });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/config/sources', requireAdmin, async (req, res) => {
+  const result = addSource(req.body || {});
+  if (!result.ok) return res.status(400).json(result);
+  const refreshed = await hotRefreshCustomSources();
+  res.json({ ...result, refreshed });
+});
+
+app.put('/api/config/sources/:id', requireAdmin, async (req, res) => {
+  if (String(req.params.id).startsWith('seed:')) {
+    return res.status(403).json({ error: 'Built-in seed sources cannot be edited from the UI' });
+  }
+  const result = updateSource(req.params.id, req.body || {});
+  if (!result.ok) return res.status(result.errors?.[0] === 'source not found' ? 404 : 400).json(result);
+  const refreshed = await hotRefreshCustomSources();
+  res.json({ ...result, refreshed });
+});
+
+app.delete('/api/config/sources/:id', requireAdmin, async (req, res) => {
+  if (String(req.params.id).startsWith('seed:')) {
+    return res.status(403).json({ error: 'Built-in seed sources cannot be deleted from the UI' });
+  }
+  const result = deleteSource(req.params.id);
+  if (!result.ok) return res.status(404).json(result);
+  const refreshed = await hotRefreshCustomSources();
+  res.json({ ...result, refreshed });
 });
 
 // API: current data
@@ -422,11 +514,16 @@ async function runSweepCycle() {
       synthesized.ideasSource = 'disabled';
     }
 
-    // 5b. Intelligence Analysis — LLM synthesis of user-defined customAnalyzed sources
-    if (llmProvider?.isConfigured && synthesized.customAnalyzed?.length) {
+    // 5b. Intelligence Analysis — multi-pool OSINT synthesis
+    const intelHarvest = harvestIntelItems({ ...synthesized, _delta: delta }, config);
+    if (llmProvider?.isConfigured && hasIntelInput({ ...synthesized, _delta: delta }, config)) {
       try {
-        console.log(`[Crucix] Generating Intelligence Analysis for ${synthesized.customAnalyzed.length} analyzed items...`);
-        const intel = await generateIntelAnalysis(llmProvider, { ...synthesized, _delta: delta });
+        const poolSummary = Object.entries(intelHarvest.poolCounts)
+          .filter(([, n]) => n > 0)
+          .map(([k, n]) => `${k}:${n}`)
+          .join(', ');
+        console.log(`[Crucix] Generating Intelligence Analysis (${poolSummary})...`);
+        const intel = await generateIntelAnalysis(llmProvider, { ...synthesized, _delta: delta }, config);
         if (intel && intel.length) {
           synthesized.intelAnalysis = intel;
           synthesized.intelAnalysisSource = 'llm';
@@ -440,12 +537,12 @@ async function runSweepCycle() {
         synthesized.intelAnalysis = [];
         synthesized.intelAnalysisSource = 'llm-failed';
       }
-    } else if (!synthesized.customAnalyzed?.length) {
-      synthesized.intelAnalysis = [];
-      synthesized.intelAnalysisSource = 'no-input';
-    } else {
+    } else if (!llmProvider?.isConfigured) {
       synthesized.intelAnalysis = [];
       synthesized.intelAnalysisSource = 'disabled';
+    } else {
+      synthesized.intelAnalysis = [];
+      synthesized.intelAnalysisSource = 'no-input';
     }
 
     // 6. Alert evaluation — Telegram + Discord (LLM with rule-based fallback, multi-tier, semantic dedup)
