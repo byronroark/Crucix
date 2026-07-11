@@ -389,10 +389,42 @@ function loadTokenCacheIntoSession() {
   }
 }
 
+function cleanEnvToken(value) {
+  if (!value) return null;
+  let v = String(value).trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).trim();
+  }
+  return v || null;
+}
+
+function seedRefreshToken() {
+  const envRefresh = cleanEnvToken(process.env.ACLED_REFRESH_TOKEN);
+  if (envRefresh) {
+    sessionCache.refreshToken = envRefresh;
+    sessionCache.refreshExpires = Date.now() + REFRESH_TTL_MS;
+    debugLog('Seeded refresh_token from .env');
+    return;
+  }
+
+  if (!existsSync(TOKEN_CACHE_FILE)) return;
+  try {
+    const doc = JSON.parse(readFileSync(TOKEN_CACHE_FILE, 'utf8'));
+    const cached = doc.refresh_token?.trim();
+    if (!cached) return;
+    sessionCache.refreshToken = cached;
+    sessionCache.refreshExpires = doc.refresh_expires_at
+      ? new Date(doc.refresh_expires_at).getTime()
+      : Date.now() + REFRESH_TTL_MS;
+    debugLog('Seeded refresh_token from disk cache');
+  } catch {
+    // ignore corrupt cache
+  }
+}
 function envTokenBootstrap() {
-  const access = process.env.ACLED_ACCESS_TOKEN?.trim();
+  const access = cleanEnvToken(process.env.ACLED_ACCESS_TOKEN);
   if (!access) return null;
-  const refresh = process.env.ACLED_REFRESH_TOKEN?.trim() || null;
+  const refresh = cleanEnvToken(process.env.ACLED_REFRESH_TOKEN);
   return {
     token: access,
     refreshToken: refresh,
@@ -485,6 +517,11 @@ async function postOAuthToken(body) {
     if (parsed.error) return { error: parsed.error };
     const data = parsed.data;
 
+    if (!data || typeof data !== 'object') {
+      debugLog(`OAuth response body (HTTP ${status}, ${raw.length} bytes): ${raw.slice(0, 300)}`);
+      return { error: `OAuth failed (HTTP ${status}): empty or non-JSON response` };
+    }
+
     if (status < 200 || status >= 300) {
       const msg = data?.error_description || data?.message || data?.error || raw.slice(0, 200);
       return { error: `OAuth failed (HTTP ${status}): ${msg}` };
@@ -535,7 +572,10 @@ async function probeApiAccess(headers, label) {
 
     if (status < 200 || status >= 300) {
       const msg = data?.message || raw.slice(0, 200);
-      return { error: `${label} probe failed (HTTP ${status}): ${msg}` };
+      const hint = status === 401
+        ? ' (access token expired or invalid)'
+        : '';
+      return { error: `${label} probe failed (HTTP ${status})${hint}: ${msg}` };
     }
 
     if (data?.status && data.status !== 200) {
@@ -615,6 +655,10 @@ async function loginCookie(email, password) {
       return { cookies: cookieStr };
     }
 
+    if (status >= 200 && status < 300 && !cookieStr) {
+      return { error: `Cookie login returned HTTP ${status} but no session cookie (check email/password and Terms of Use at acleddata.com)` };
+    }
+
     return { error: `Cookie login failed (HTTP ${status}): ${errText.slice(0, 200)}` };
   } catch (e) {
     const cause = e.cause ? ` → ${e.cause.message || e.cause.code || e.cause}` : '';
@@ -662,14 +706,9 @@ async function authenticate() {
 
   const errors = [];
 
-  // Seed refresh token from .env when disk cache only had expired access
-  const envRefresh = process.env.ACLED_REFRESH_TOKEN?.trim();
-  if (envRefresh && !sessionCache.refreshToken) {
-    sessionCache.refreshToken = envRefresh;
-    sessionCache.refreshExpires = Date.now() + REFRESH_TTL_MS;
-  }
+  seedRefreshToken();
 
-  // Refresh access token without re-posting password (works when Cloudflare blocks password grant)
+  // Refresh access token without re-posting password
   if (refreshTokenValid()) {
     debugLog('Access token expired — refreshing via refresh_token');
     const refreshed = await refreshOAuthToken(sessionCache.refreshToken);
@@ -727,7 +766,12 @@ async function authenticate() {
   }
 
   emptySession();
-  return { error: `All ACLED auth methods failed.\n${errors.join('\n')}` };
+  const tokenHint = errors.some((e) => /401|400|expired|invalid/i.test(e))
+    ? '\n\n→ Tokens are expired or invalid. Refresh on the NUC host:\n'
+      + '    node scripts/acled-host-refresh.mjs\n'
+      + '  Or get new tokens via PowerShell curl.exe and update ACLED_ACCESS_TOKEN + ACLED_REFRESH_TOKEN in .env.'
+    : '';
+  return { error: `All ACLED auth methods failed.\n${errors.join('\n')}${tokenHint}` };
 }
 
 function authHeaders(session) {
