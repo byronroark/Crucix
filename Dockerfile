@@ -1,9 +1,11 @@
-FROM node:22-alpine
+FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-# curl bypasses Cloudflare bot checks that block Node fetch to acleddata.com
-RUN apk add --no-cache curl
+# curl + CA bundle; Debian curl TLS differs from Alpine (Cloudflare on acleddata.com)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy package files first for better layer caching
 COPY package*.json ./
@@ -17,6 +19,6 @@ EXPOSE 3117
 
 # Health check
 HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
-  CMD wget -qO- http://localhost:3117/api/health || exit 1
+  CMD curl -sf "http://localhost:${PORT:-3117}/api/health" || exit 1
 
 CMD ["node", "server.mjs"]

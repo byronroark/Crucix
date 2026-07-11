@@ -6,7 +6,7 @@
 //   npm run test:acled -- --debug
 
 import '../apis/utils/env.mjs';
-import { authenticate, briefing, lastAuthDiagnostics } from '../apis/sources/acled.mjs';
+import { authenticate, briefing, probeAcledTransport, lastAuthDiagnostics } from '../apis/sources/acled.mjs';
 
 const debug = process.argv.includes('--debug');
 
@@ -18,8 +18,11 @@ if (!hasToken && !hasPassword) {
 }
 
 console.log('[test-acled] Authenticating...');
-if (debug) {
-  console.log(`[test-acled] ACLED_USE_CURL=${process.env.ACLED_USE_CURL ?? '(auto)'}`);
+const transport = await probeAcledTransport();
+console.log(`[test-acled] transport: curl=${transport.curlAvailable}, cycletls=${transport.cycleTlsAvailable}`
+  + `, ACLED_USE_CURL=${transport.acledUseCurl}, ACLED_USE_CYCLETLS=${transport.acledUseCycletls}`);
+if (!transport.curlAvailable && transport.acledUseCurl !== '0') {
+  console.error('[test-acled] WARN: curl not found in container — run `docker compose up -d --build`');
 }
 const session = await authenticate();
 if (session.error) {

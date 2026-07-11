@@ -31,11 +31,32 @@ const REFRESH_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days per ACLED docs
 /** Populated on each authenticate() call — useful for test:acled --debug */
 export const lastAuthDiagnostics = { attempts: [] };
 
-const ACLED_FETCH_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (compatible; Crucix/1.0; +https://github.com/byronroark/Crucix)',
+const ACLED_BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+const ACLED_BROWSER_HEADERS = {
+  'User-Agent': ACLED_BROWSER_UA,
   Accept: 'application/json, text/plain, */*',
   'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
 };
+
+/** @deprecated alias — use buildAcledHeaders() */
+const ACLED_FETCH_HEADERS = ACLED_BROWSER_HEADERS;
+
+function buildAcledHeaders(extra = {}) {
+  return { ...ACLED_BROWSER_HEADERS, ...extra };
+}
+
+function buildAcledPostHeaders(extra = {}) {
+  return buildAcledHeaders({
+    Origin: 'https://acleddata.com',
+    Referer: 'https://acleddata.com/',
+    ...extra,
+  });
+}
 
 function isDebug() {
   return process.argv.includes('--debug');
@@ -53,6 +74,62 @@ try {
   curlAvailable = true;
 } catch {
   curlAvailable = false;
+}
+
+let cycleTlsModule = null;
+let cycleTlsClient = null;
+let cycleTlsInitPromise = null;
+let cycleTlsChecked = false;
+let cycleTlsAvailable = false;
+
+async function ensureCycleTls() {
+  if (cycleTlsChecked) return cycleTlsAvailable;
+  cycleTlsChecked = true;
+  try {
+    cycleTlsModule = await import('cycletls');
+    cycleTlsAvailable = true;
+  } catch {
+    cycleTlsAvailable = false;
+  }
+  return cycleTlsAvailable;
+}
+
+async function getCycleTlsClient() {
+  if (cycleTlsClient) return cycleTlsClient;
+  if (!cycleTlsInitPromise) {
+    cycleTlsInitPromise = (async () => {
+      await ensureCycleTls();
+      if (!cycleTlsModule) throw new Error('cycletls package not installed');
+      const initCycleTLS = cycleTlsModule.default ?? cycleTlsModule;
+      cycleTlsClient = await initCycleTLS();
+      return cycleTlsClient;
+    })();
+  }
+  return cycleTlsInitPromise;
+}
+
+function shouldUseCycleTls() {
+  const pref = String(process.env.ACLED_USE_CYCLETLS ?? '').trim().toLowerCase();
+  if (pref === '0' || pref === 'false' || pref === 'no') return false;
+  if (pref === '1' || pref === 'true' || pref === 'yes') return true;
+  return false;
+}
+
+export function getAcledTransportInfo() {
+  return {
+    curlAvailable,
+    cycleTlsChecked,
+    cycleTlsAvailable,
+    useCurl: shouldUseCurl(),
+    useCycleTls: shouldUseCycleTls(),
+    acledUseCurl: process.env.ACLED_USE_CURL ?? '(auto)',
+    acledUseCycletls: process.env.ACLED_USE_CYCLETLS ?? '(fallback on Cloudflare)',
+  };
+}
+
+export async function probeAcledTransport() {
+  await ensureCycleTls();
+  return getAcledTransportInfo();
 }
 
 function shouldUseCurl() {
@@ -113,6 +190,8 @@ async function acledRequestCurl(url, {
   const headerFile = join(dir, 'headers.txt');
   const args = [
     '-sS',
+    '--http1.1',
+    '--compressed',
     followRedirects ? '-L' : '--no-location',
     '--max-time', String(Math.max(1, Math.ceil(timeoutMs / 1000))),
     '-D', headerFile,
@@ -135,31 +214,96 @@ async function acledRequestCurl(url, {
     const text = await readFile(bodyFile, 'utf8').catch(() => '');
     const headerText = await readFile(headerFile, 'utf8').catch(() => '');
     const { setCookies } = parseCurlHeaderDump(headerText);
-    return { status, body: text, setCookies };
+    return { status, body: text, setCookies, transport: 'curl' };
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-/** @returns {Promise<{ status: number, body: string, setCookies: string[] }>} */
+async function acledRequestCycleTLS(url, {
+  method = 'GET',
+  headers = {},
+  body = null,
+  timeoutMs = 15000,
+  followRedirects = true,
+} = {}) {
+  const cycleTLS = await getCycleTlsClient();
+  const response = await cycleTLS(url, {
+    headers,
+    body: body ?? '',
+    timeout: Math.max(5, Math.ceil(timeoutMs)),
+    disableRedirect: !followRedirects,
+    userAgent: ACLED_BROWSER_UA,
+    forceHTTP1: true,
+  }, method.toLowerCase());
+
+  const status = Number(response?.status) || 0;
+  const text = typeof response?.body === 'string'
+    ? response.body
+    : (response?.body ? String(response.body) : '');
+  return { status, body: text, setCookies: [], transport: 'cycletls' };
+}
+
+/** @returns {Promise<{ status: number, body: string, setCookies: string[], transport: string }>} */
 async function acledRequest(url, opts = {}) {
+  const headers = opts.headers?.Authorization || opts.headers?.Cookie
+    ? buildAcledHeaders(opts.headers)
+    : buildAcledPostHeaders(opts.headers);
+  const mergedOpts = { ...opts, headers };
+
+  if (shouldUseCycleTls()) {
+    await ensureCycleTls();
+    if (cycleTlsAvailable) {
+      debugLog(`HTTP ${mergedOpts.method || 'GET'} via cycletls (ACLED_USE_CYCLETLS=1)`);
+      return acledRequestCycleTLS(url, mergedOpts);
+    }
+    debugLog('ACLED_USE_CYCLETLS=1 but cycletls is not installed');
+  }
+
   const viaCurl = shouldUseCurl();
   if (viaCurl) {
-    debugLog(`HTTP ${opts.method || 'GET'} via curl`);
-    return acledRequestCurl(url, opts);
+    if (!curlAvailable) {
+      debugLog('ACLED_USE_CURL=1 but curl binary not found in container — rebuild image');
+    } else {
+      debugLog(`HTTP ${mergedOpts.method || 'GET'} via curl`);
+      const result = await acledRequestCurl(url, mergedOpts);
+      if (cloudflareHint(result.body)) {
+        await ensureCycleTls();
+        if (cycleTlsAvailable) {
+          debugLog('Cloudflare blocked curl — retrying via cycletls');
+          return acledRequestCycleTLS(url, mergedOpts);
+        }
+      }
+      return result;
+    }
   }
 
   try {
-    const result = await acledRequestFetch(url, opts);
-    if (cloudflareHint(result.body) && curlAvailable) {
-      debugLog('Cloudflare blocked fetch — retrying via curl');
-      return acledRequestCurl(url, opts);
+    const result = await acledRequestFetch(url, mergedOpts);
+    result.transport = 'fetch';
+    if (cloudflareHint(result.body)) {
+      if (curlAvailable) {
+        debugLog('Cloudflare blocked fetch — retrying via curl');
+        const curlResult = await acledRequestCurl(url, mergedOpts);
+        if (!cloudflareHint(curlResult.body)) return curlResult;
+      }
+      await ensureCycleTls();
+      if (cycleTlsAvailable) {
+        debugLog('Cloudflare blocked fetch/curl — retrying via cycletls');
+        return acledRequestCycleTLS(url, mergedOpts);
+      }
     }
     return result;
   } catch (e) {
     if (curlAvailable) {
       debugLog(`fetch failed (${e.message}) — retrying via curl`);
-      return acledRequestCurl(url, opts);
+      const curlResult = await acledRequestCurl(url, mergedOpts);
+      if (!cloudflareHint(curlResult.body)) return curlResult;
+    }
+    await ensureCycleTls();
+    if (cycleTlsAvailable) {
+      debugLog(`fetch/curl failed — retrying via cycletls`);
+      return acledRequestCycleTLS(url, mergedOpts);
     }
     throw e;
   }
@@ -169,8 +313,8 @@ function cloudflareHint(raw) {
   const text = String(raw || '');
   if (/just a moment|cf-browser-verification|cloudflare/i.test(text)) {
     return 'Cloudflare bot challenge blocked this request from the server. '
-      + 'ACLED may be unreachable from this host/IP via Node fetch. '
-      + 'Set ACLED_USE_CURL=1 (Docker image includes curl) or contact access@acleddata.com.';
+      + 'Rebuild with `docker compose up -d --build`, set ACLED_USE_CYCLETLS=1 in .env, '
+      + 'or refresh tokens on the NUC host: `node scripts/acled-host-refresh.mjs`.';
   }
   return null;
 }
@@ -330,10 +474,9 @@ async function postOAuthToken(body) {
   try {
     const { status, body: raw } = await acledRequest(TOKEN_URL, {
       method: 'POST',
-      headers: {
-        ...ACLED_FETCH_HEADERS,
+      headers: buildAcledPostHeaders({
         'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      }),
       body: body.toString(),
       timeoutMs: 15000,
     });
@@ -382,7 +525,7 @@ async function probeApiAccess(headers, label) {
   const params = new URLSearchParams({ _format: 'json', limit: '1' });
   try {
     const { status, body: raw } = await acledRequest(`${API_BASE}?${params}`, {
-      headers: { ...ACLED_FETCH_HEADERS, ...headers },
+      headers: buildAcledHeaders(headers),
       timeoutMs: 15000,
     });
 
@@ -456,7 +599,7 @@ async function loginCookie(email, password) {
   try {
     const { status, body: errText, setCookies } = await acledRequest(LOGIN_URL, {
       method: 'POST',
-      headers: { ...ACLED_FETCH_HEADERS, 'Content-Type': 'application/json' },
+      headers: buildAcledPostHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ name: email, pass: password }),
       followRedirects: false,
       timeoutMs: 15000,
@@ -588,7 +731,7 @@ async function authenticate() {
 }
 
 function authHeaders(session) {
-  const headers = { ...ACLED_FETCH_HEADERS, 'Content-Type': 'application/json' };
+  const headers = buildAcledHeaders({ 'Content-Type': 'application/json' });
   if (session.method === 'cookie' && session.cookies) {
     headers.Cookie = session.cookies;
   } else if (session.method === 'oauth' && session.token) {

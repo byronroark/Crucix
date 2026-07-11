@@ -18,7 +18,8 @@
     "geocode:query": "node scripts/geocode-query.mjs",
     "test:intel-analysis": "node scripts/test-intel-analysis.mjs",
     "test:custom-sources-api": "node scripts/test-custom-sources-api.mjs",
-    "test:acled": "node scripts/test-acled.mjs"
+    "test:acled": "node scripts/test-acled.mjs",
+    "acled:host-refresh": "node scripts/acled-host-refresh.mjs"
   },
   "keywords": [
     "osint",
@@ -36,7 +37,9 @@
     "express": "^5.1.0"
   },
   "optionalDependencies": {
-    "discord.js": "^14.25.1"  },
+    "cycletls": "^2.0.5",
+    "discord.js": "^14.25.1"
+  },
   "overrides": {
     "undici": "^7.24.4"  }
 }
