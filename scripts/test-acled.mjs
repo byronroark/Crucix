@@ -6,7 +6,7 @@
 //   npm run test:acled -- --debug
 
 import '../apis/utils/env.mjs';
-import { authenticate, briefing } from '../apis/sources/acled.mjs';
+import { authenticate, briefing, lastAuthDiagnostics } from '../apis/sources/acled.mjs';
 
 const debug = process.argv.includes('--debug');
 
@@ -19,6 +19,19 @@ console.log('[test-acled] Authenticating (OAuth + token probe)...');
 const session = await authenticate();
 if (session.error) {
   console.error('[test-acled] FAIL:', session.error);
+  if (lastAuthDiagnostics.attempts.length) {
+    console.error('[test-acled] Attempts:');
+    for (const line of lastAuthDiagnostics.attempts) console.error(`  - ${line}`);
+  }
+  process.exit(1);
+}
+
+if (session.method !== 'oauth') {
+  console.error(`[test-acled] FAIL: Expected OAuth session but got method=${session.method}`);
+  if (lastAuthDiagnostics.attempts.length) {
+    console.error('[test-acled] Attempts:');
+    for (const line of lastAuthDiagnostics.attempts) console.error(`  - ${line}`);
+  }
   process.exit(1);
 }
 

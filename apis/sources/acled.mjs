@@ -17,6 +17,41 @@ const TOKEN_SKEW_MS = 60_000;           // refresh 1 min before access token exp
 const DEFAULT_ACCESS_TTL_SEC = 86_400;    // 24h per ACLED docs
 const REFRESH_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days per ACLED docs
 
+/** Populated on each authenticate() call — useful for test:acled --debug */
+export const lastAuthDiagnostics = { attempts: [] };
+
+const ACLED_FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (compatible; Crucix/1.0; +https://github.com/byronroark/Crucix)',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+function cloudflareHint(raw) {
+  const text = String(raw || '');
+  if (/just a moment|cf-browser-verification|cloudflare/i.test(text)) {
+    return 'Cloudflare bot challenge blocked this request from the server. '
+      + 'ACLED may be unreachable from this host/IP via automated fetch. '
+      + 'Try a residential network, or contact access@acleddata.com.';
+  }
+  return null;
+}
+
+function parseAcledJson(raw, context) {
+  const cf = cloudflareHint(raw);
+  if (cf) return { error: `${context}: ${cf}` };
+
+  try {
+    return { data: raw ? JSON.parse(raw) : null };
+  } catch {
+    return { error: `${context} returned non-JSON: ${String(raw).slice(0, 200)}` };
+  }
+}
+
+function noteAuthAttempt(message) {
+  lastAuthDiagnostics.attempts.push(message);
+  debugLog(message);
+}
+
 /** @type {{ cookies: string|null, token: string|null, refreshToken: string|null, method: string|null, expires: number, refreshExpires: number }} */
 let sessionCache = {
   cookies: null,
@@ -100,19 +135,19 @@ async function postOAuthToken(body) {
   try {
     const res = await fetch(TOKEN_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        ...ACLED_FETCH_HEADERS,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
       body: body.toString(),
       signal: controller.signal,
     });
     clearTimeout(timer);
 
     const raw = await res.text().catch(() => '');
-    let data;
-    try {
-      data = raw ? JSON.parse(raw) : null;
-    } catch {
-      return { error: `OAuth response was not JSON (HTTP ${res.status}): ${raw.slice(0, 200)}` };
-    }
+    const parsed = parseAcledJson(raw, `OAuth token endpoint (HTTP ${res.status})`);
+    if (parsed.error) return { error: parsed.error };
+    const data = parsed.data;
 
     if (!res.ok) {
       const msg = data?.error_description || data?.message || data?.error || raw.slice(0, 200);
@@ -149,49 +184,50 @@ async function refreshOAuthToken(refreshToken) {
   return postOAuthToken(body);
 }
 
-// Lightweight read to confirm the bearer token can access ACLED data
-async function probeAccessToken(token) {
+// Lightweight read to confirm credentials can access ACLED data
+async function probeApiAccess(headers, label) {
   const params = new URLSearchParams({ _format: 'json', limit: '1' });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   try {
     const res = await fetch(`${API_BASE}?${params}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'User-Agent': 'Crucix/1.0',
-        Accept: 'application/json',
-      },
+      headers: { ...ACLED_FETCH_HEADERS, ...headers },
       signal: controller.signal,
     });
     clearTimeout(timer);
 
     const raw = await res.text().catch(() => '');
-    let data;
-    try {
-      data = raw ? JSON.parse(raw) : null;
-    } catch {
-      return { error: `Token probe returned non-JSON (HTTP ${res.status}): ${raw.slice(0, 200)}` };
-    }
+    const parsed = parseAcledJson(raw, `${label} probe (HTTP ${res.status})`);
+    if (parsed.error) return { error: parsed.error };
+    const data = parsed.data;
 
     if (!res.ok) {
       const msg = data?.message || raw.slice(0, 200);
-      return { error: `Token probe failed (HTTP ${res.status}): ${msg}` };
+      return { error: `${label} probe failed (HTTP ${res.status}): ${msg}` };
     }
 
     if (data?.status && data.status !== 200) {
-      return { error: `Token probe API error: status ${data.status} — ${data.message || 'Unknown error'}` };
+      return { error: `${label} probe API error: status ${data.status} — ${data.message || 'Unknown error'}` };
     }
 
     if (!Array.isArray(data?.data)) {
-      return { error: 'Token probe succeeded but response missing data array' };
+      return { error: `${label} probe succeeded but response missing data array` };
     }
 
     return { ok: true };
   } catch (e) {
     clearTimeout(timer);
-    if (e.name === 'AbortError') return { error: 'Token probe timed out (15s)' };
-    return { error: `Token probe error: ${e.message}` };
+    if (e.name === 'AbortError') return { error: `${label} probe timed out (15s)` };
+    return { error: `${label} probe error: ${e.message}` };
   }
+}
+
+async function probeAccessToken(token) {
+  return probeApiAccess({ Authorization: `Bearer ${token}` }, 'OAuth token');
+}
+
+async function probeCookieSession(cookies) {
+  return probeApiAccess({ Cookie: cookies }, 'Cookie session');
 }
 
 function applyOAuthSession(parsed, { keepRefreshOnMissing = true } = {}) {
@@ -233,7 +269,7 @@ async function loginCookie(email, password) {
   try {
     const res = await fetch(LOGIN_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...ACLED_FETCH_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: email, pass: password }),
       redirect: 'manual',
       signal: controller.signal,
@@ -260,12 +296,34 @@ async function loginCookie(email, password) {
   }
 }
 
+async function establishCookieSession(cookieResult) {
+  if (cookieResult.error) return cookieResult;
+
+  const probe = await probeCookieSession(cookieResult.cookies);
+  if (probe.error) {
+    return { error: `Cookie session rejected by ACLED API: ${probe.error}` };
+  }
+
+  sessionCache = {
+    cookies: cookieResult.cookies,
+    token: null,
+    refreshToken: null,
+    method: 'cookie',
+    expires: Date.now() + 12 * 60 * 60 * 1000,
+    refreshExpires: 0,
+  };
+  debugLog('Cookie session ready (probed)');
+  return sessionCache;
+}
+
 async function authenticate() {
   const email = process.env.ACLED_EMAIL;
   const password = process.env.ACLED_PASSWORD;
   if (!email || !password) {
     return { error: 'No ACLED credentials. Set ACLED_EMAIL and ACLED_PASSWORD in .env.' };
   }
+
+  lastAuthDiagnostics.attempts = [];
 
   if (accessTokenValid()) {
     return sessionCache;
@@ -281,10 +339,10 @@ async function authenticate() {
       const session = await establishOAuthSession(refreshed);
       if (!session.error) return session;
       errors.push(`Refresh+probe: ${session.error}`);
-      debugLog(session.error);
+      noteAuthAttempt(session.error);
     } else {
       errors.push(`Refresh: ${refreshed.error}`);
-      debugLog(refreshed.error);
+      noteAuthAttempt(refreshed.error);
     }
     sessionCache.refreshToken = null;
     sessionCache.refreshExpires = 0;
@@ -297,34 +355,30 @@ async function authenticate() {
     const session = await establishOAuthSession(oauthResult);
     if (!session.error) return session;
     errors.push(`OAuth+probe: ${session.error}`);
-    debugLog(session.error);
+    noteAuthAttempt(session.error);
   } else {
     errors.push(`OAuth: ${oauthResult.error}`);
-    debugLog(oauthResult.error);
+    noteAuthAttempt(oauthResult.error);
   }
 
-  // Fall back to cookie-based session
+  // Fall back to cookie-based session (also probed — no false OK)
   const cookieResult = await loginCookie(email, password);
   if (cookieResult.cookies) {
-    debugLog(`Cookie session OK — cookies: ${cookieResult.cookies.slice(0, 80)}...`);
-    sessionCache = {
-      cookies: cookieResult.cookies,
-      token: null,
-      refreshToken: null,
-      method: 'cookie',
-      expires: Date.now() + 12 * 60 * 60 * 1000,
-      refreshExpires: 0,
-    };
-    return sessionCache;
+    const session = await establishCookieSession(cookieResult);
+    if (!session.error) return session;
+    errors.push(`Cookie+probe: ${session.error}`);
+    noteAuthAttempt(session.error);
+  } else {
+    errors.push(`Cookie: ${cookieResult.error}`);
+    noteAuthAttempt(cookieResult.error);
   }
-  errors.push(`Cookie: ${cookieResult.error}`);
 
   emptySession();
   return { error: `All ACLED auth methods failed.\n${errors.join('\n')}` };
 }
 
 function authHeaders(session) {
-  const headers = { 'User-Agent': 'Crucix/1.0', 'Content-Type': 'application/json' };
+  const headers = { ...ACLED_FETCH_HEADERS, 'Content-Type': 'application/json' };
   if (session.method === 'cookie' && session.cookies) {
     headers.Cookie = session.cookies;
   } else if (session.method === 'oauth' && session.token) {
@@ -403,6 +457,11 @@ export async function getEvents(opts = {}) {
 
     if (!res.ok) {
       if (isDebug()) debugLog(`Error body: ${errText.slice(0, 500)}`);
+      const cf = cloudflareHint(errText);
+      if (cf) {
+        emptySession();
+        return { error: `ACLED blocked by Cloudflare (HTTP ${res.status}, auth method: ${session.method}). ${cf}` };
+      }
       if (res.status === 401 || res.status === 403) {
         emptySession();
         const hint = res.status === 403
@@ -417,7 +476,9 @@ export async function getEvents(opts = {}) {
       return { error: `HTTP ${res.status}: ${errText.slice(0, 200)}` };
     }
 
-    const data = JSON.parse(errText || '{}');
+    const parsed = parseAcledJson(errText, `ACLED data (HTTP ${res.status})`);
+    if (parsed.error) return { error: parsed.error };
+    const data = parsed.data;
 
     if (data?.status && data.status !== 200) {
       return { error: `ACLED API error: status ${data.status} — ${data.message || 'Unknown error'}` };
@@ -520,7 +581,7 @@ export async function briefing() {
 }
 
 // Exported for scripts/test-acled.mjs
-export { authenticate, probeAccessToken, refreshOAuthToken, loginOAuth };
+export { authenticate, probeAccessToken, probeCookieSession, refreshOAuthToken, loginOAuth };
 
 if (process.argv[1]?.endsWith('acled.mjs')) {
   const data = await briefing();
