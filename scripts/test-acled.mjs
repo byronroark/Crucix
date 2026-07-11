@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Verify ACLED OAuth (password grant + token probe + optional refresh).
+// Verify ACLED auth (env tokens, disk cache, refresh, or password grant).
 //
 // Usage:
 //   npm run test:acled
@@ -10,12 +10,14 @@ import { authenticate, briefing, lastAuthDiagnostics } from '../apis/sources/acl
 
 const debug = process.argv.includes('--debug');
 
-if (!process.env.ACLED_EMAIL || !process.env.ACLED_PASSWORD) {
-  console.error('[test-acled] Set ACLED_EMAIL and ACLED_PASSWORD in .env');
+const hasToken = Boolean(process.env.ACLED_ACCESS_TOKEN?.trim());
+const hasPassword = Boolean(process.env.ACLED_EMAIL && process.env.ACLED_PASSWORD);
+if (!hasToken && !hasPassword) {
+  console.error('[test-acled] Set ACLED_ACCESS_TOKEN (+ ACLED_REFRESH_TOKEN) or ACLED_EMAIL/ACLED_PASSWORD in .env');
   process.exit(2);
 }
 
-console.log('[test-acled] Authenticating (OAuth + token probe)...');
+console.log('[test-acled] Authenticating...');
 const session = await authenticate();
 if (session.error) {
   console.error('[test-acled] FAIL:', session.error);

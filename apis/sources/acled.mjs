@@ -1,13 +1,20 @@
 // ACLED — Armed Conflict Location & Event Data
 // Auth strategy (tries in order):
-//   1. OAuth Bearer token (password grant, then refresh_token when access expires)
-//   2. Cookie-based session fallback: POST /user/login?_format=json
-// Set ACLED_EMAIL and ACLED_PASSWORD in .env (your myACLED login credentials).
+//   1. Cached OAuth tokens (runs/.cache/acled-oauth.json) or ACLED_ACCESS_TOKEN + ACLED_REFRESH_TOKEN in .env
+//   2. OAuth refresh_token grant (avoids password when Cloudflare blocks Node fetch)
+//   3. OAuth password grant (ACLED_EMAIL + ACLED_PASSWORD) — often blocked by Cloudflare in Docker/Node
+//   4. Cookie-based session fallback
 // Data endpoint: GET https://acleddata.com/api/acled/read
 // Docs: https://acleddata.com/api-documentation/getting-started
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { daysAgo } from '../utils/fetch.mjs';
 import '../utils/env.mjs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TOKEN_CACHE_FILE = join(__dirname, '..', '..', 'runs', '.cache', 'acled-oauth.json');
 
 const LOGIN_URL = 'https://acleddata.com/user/login?_format=json';
 const TOKEN_URL = 'https://acleddata.com/oauth/token';
@@ -50,6 +57,72 @@ function parseAcledJson(raw, context) {
 function noteAuthAttempt(message) {
   lastAuthDiagnostics.attempts.push(message);
   debugLog(message);
+}
+
+function hasAcledConfig() {
+  if (process.env.ACLED_ACCESS_TOKEN?.trim()) return true;
+  if (process.env.ACLED_EMAIL && process.env.ACLED_PASSWORD) return true;
+  if (existsSync(TOKEN_CACHE_FILE)) return true;
+  return false;
+}
+
+function ensureTokenCacheDir() {
+  const dir = dirname(TOKEN_CACHE_FILE);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
+function persistOAuthTokens() {
+  if (sessionCache.method !== 'oauth' || !sessionCache.token) return;
+  try {
+    ensureTokenCacheDir();
+    writeFileSync(TOKEN_CACHE_FILE, JSON.stringify({
+      access_token: sessionCache.token,
+      refresh_token: sessionCache.refreshToken || null,
+      expires_at: new Date(sessionCache.expires).toISOString(),
+      refresh_expires_at: sessionCache.refreshExpires
+        ? new Date(sessionCache.refreshExpires).toISOString()
+        : null,
+      updated_at: new Date().toISOString(),
+    }, null, 2), 'utf8');
+    debugLog(`Persisted tokens to ${TOKEN_CACHE_FILE}`);
+  } catch (err) {
+    debugLog('Failed to persist ACLED tokens:', err.message);
+  }
+}
+
+function loadTokenCacheIntoSession() {
+  if (!existsSync(TOKEN_CACHE_FILE)) return false;
+  try {
+    const doc = JSON.parse(readFileSync(TOKEN_CACHE_FILE, 'utf8'));
+    const expires = doc.expires_at ? new Date(doc.expires_at).getTime() : 0;
+    if (!doc.access_token || !expires || Date.now() >= expires - TOKEN_SKEW_MS) return false;
+    sessionCache = {
+      cookies: null,
+      token: doc.access_token,
+      refreshToken: doc.refresh_token || null,
+      method: 'oauth',
+      expires,
+      refreshExpires: doc.refresh_expires_at
+        ? new Date(doc.refresh_expires_at).getTime()
+        : (doc.refresh_token ? Date.now() + REFRESH_TTL_MS : 0),
+    };
+    debugLog('Loaded valid access token from disk cache');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function envTokenBootstrap() {
+  const access = process.env.ACLED_ACCESS_TOKEN?.trim();
+  if (!access) return null;
+  const refresh = process.env.ACLED_REFRESH_TOKEN?.trim() || null;
+  return {
+    token: access,
+    refreshToken: refresh,
+    expires: Date.now() + DEFAULT_ACCESS_TTL_SEC * 1000,
+    refreshExpires: refresh ? Date.now() + REFRESH_TTL_MS : 0,
+  };
 }
 
 /** @type {{ cookies: string|null, token: string|null, refreshToken: string|null, method: string|null, expires: number, refreshExpires: number }} */
@@ -257,6 +330,7 @@ async function establishOAuthSession(tokenResult) {
   }
 
   applyOAuthSession(tokenResult);
+  persistOAuthTokens();
   debugLog(`OAuth session ready — access expires in ${Math.round((sessionCache.expires - Date.now()) / 60000)} min`
     + (sessionCache.refreshToken ? ', refresh token cached' : ''));
   return sessionCache;
@@ -319,8 +393,8 @@ async function establishCookieSession(cookieResult) {
 async function authenticate() {
   const email = process.env.ACLED_EMAIL;
   const password = process.env.ACLED_PASSWORD;
-  if (!email || !password) {
-    return { error: 'No ACLED credentials. Set ACLED_EMAIL and ACLED_PASSWORD in .env.' };
+  if (!hasAcledConfig()) {
+    return { error: 'No ACLED credentials. Set ACLED_ACCESS_TOKEN (+ ACLED_REFRESH_TOKEN) or ACLED_EMAIL and ACLED_PASSWORD in .env.' };
   }
 
   lastAuthDiagnostics.attempts = [];
@@ -329,9 +403,20 @@ async function authenticate() {
     return sessionCache;
   }
 
+  if (loadTokenCacheIntoSession() && accessTokenValid()) {
+    return sessionCache;
+  }
+
   const errors = [];
 
-  // Refresh access token without re-posting password
+  // Seed refresh token from .env when disk cache only had expired access
+  const envRefresh = process.env.ACLED_REFRESH_TOKEN?.trim();
+  if (envRefresh && !sessionCache.refreshToken) {
+    sessionCache.refreshToken = envRefresh;
+    sessionCache.refreshExpires = Date.now() + REFRESH_TTL_MS;
+  }
+
+  // Refresh access token without re-posting password (works when Cloudflare blocks password grant)
   if (refreshTokenValid()) {
     debugLog('Access token expired — refreshing via refresh_token');
     const refreshed = await refreshOAuthToken(sessionCache.refreshToken);
@@ -346,6 +431,21 @@ async function authenticate() {
     }
     sessionCache.refreshToken = null;
     sessionCache.refreshExpires = 0;
+  }
+
+  // Bootstrap from .env access token (paste from curl.exe on Windows — see .env.example)
+  const envTokens = envTokenBootstrap();
+  if (envTokens) {
+    debugLog('Probing ACLED_ACCESS_TOKEN from .env');
+    const session = await establishOAuthSession(envTokens);
+    if (!session.error) return session;
+    errors.push(`Env token+probe: ${session.error}`);
+    noteAuthAttempt(session.error);
+  }
+
+  if (!email || !password) {
+    emptySession();
+    return { error: `ACLED token auth failed and no password fallback configured.\n${errors.join('\n')}` };
   }
 
   // Password grant (initial login or after refresh failure)
@@ -508,12 +608,12 @@ function groupBy(events, field) {
 
 // Briefing — last 7 days of global conflict events
 export async function briefing() {
-  if (!process.env.ACLED_EMAIL || !process.env.ACLED_PASSWORD) {
+  if (!hasAcledConfig()) {
     return {
       source: 'ACLED',
       timestamp: new Date().toISOString(),
       status: 'no_credentials',
-      message: 'Set ACLED_EMAIL and ACLED_PASSWORD in .env. Register at https://acleddata.com/user/register',
+      message: 'Set ACLED_ACCESS_TOKEN (+ ACLED_REFRESH_TOKEN) or ACLED_EMAIL/ACLED_PASSWORD in .env. See .env.example.',
     };
   }
 
