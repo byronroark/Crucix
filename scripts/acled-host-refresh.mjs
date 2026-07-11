@@ -129,14 +129,27 @@ const refreshExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOSt
 const newRefresh = cleanToken(data.refresh_token) || usedRefreshToken;
 
 mkdirSync(dirname(CACHE_FILE), { recursive: true });
-writeFileSync(CACHE_FILE, JSON.stringify({
-  access_token: data.access_token,
-  refresh_token: newRefresh,
-  expires_at: expiresAt,
-  refresh_expires_at: refreshExpiresAt,
-  updated_at: new Date().toISOString(),
-  source: 'host-refresh',
-}, null, 2), 'utf8');
+try {
+  writeFileSync(CACHE_FILE, JSON.stringify({
+    access_token: data.access_token,
+    refresh_token: newRefresh,
+    expires_at: expiresAt,
+    refresh_expires_at: refreshExpiresAt,
+    updated_at: new Date().toISOString(),
+    source: 'host-refresh',
+  }, null, 2), 'utf8');
+} catch (err) {
+  if (err?.code === 'EACCES') {
+    console.error(`[host-refresh] Permission denied writing ${CACHE_FILE}`);
+    console.error('[host-refresh] Docker likely created this file as root. On the NUC host, run:');
+    console.error(`  sudo chown -R $USER:$USER ${join(ROOT, 'runs')}`);
+    console.error('  node scripts/acled-host-refresh.mjs');
+    console.error('Then rebuild so the container runs as your user (see PUID/PGID in .env.example):');
+    console.error('  docker compose up -d --build');
+    process.exit(1);
+  }
+  throw err;
+}
 
 console.log(`[host-refresh] OK — wrote ${CACHE_FILE}`);
 console.log(`[host-refresh] access expires ~${Math.round(expiresIn / 3600)}h`);

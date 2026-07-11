@@ -1,6 +1,8 @@
 services:
   crucix:
     build: .
+    # Match host user so runs/ files are writable from host scripts (acled-host-refresh.mjs)
+    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
       - "${PORT:-3117}:${PORT:-3117}"
     env_file:
