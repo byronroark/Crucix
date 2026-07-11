@@ -1,9 +1,10 @@
 // ACLED — Armed Conflict Location & Event Data
 // Auth strategy (tries in order):
-//   1. Cookie-based session: POST /user/login?_format=json → session cookie
-//   2. OAuth Bearer token:   POST /oauth/token → Authorization header
+//   1. OAuth Bearer token (password grant, then refresh_token when access expires)
+//   2. Cookie-based session fallback: POST /user/login?_format=json
 // Set ACLED_EMAIL and ACLED_PASSWORD in .env (your myACLED login credentials).
 // Data endpoint: GET https://acleddata.com/api/acled/read
+// Docs: https://acleddata.com/api-documentation/getting-started
 
 import { daysAgo } from '../utils/fetch.mjs';
 import '../utils/env.mjs';
@@ -12,10 +13,220 @@ const LOGIN_URL = 'https://acleddata.com/user/login?_format=json';
 const TOKEN_URL = 'https://acleddata.com/oauth/token';
 const API_BASE  = 'https://acleddata.com/api/acled/read';
 
-// Session cache
-let sessionCache = { cookies: null, token: null, method: null, expires: 0 };
+const TOKEN_SKEW_MS = 60_000;           // refresh 1 min before access token expiry
+const DEFAULT_ACCESS_TTL_SEC = 86_400;    // 24h per ACLED docs
+const REFRESH_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days per ACLED docs
 
-// Strategy 1: Cookie-based session login (mirrors browser login)
+/** @type {{ cookies: string|null, token: string|null, refreshToken: string|null, method: string|null, expires: number, refreshExpires: number }} */
+let sessionCache = {
+  cookies: null,
+  token: null,
+  refreshToken: null,
+  method: null,
+  expires: 0,
+  refreshExpires: 0,
+};
+
+function isDebug() {
+  return process.argv.includes('--debug');
+}
+
+function debugLog(...args) {
+  if (isDebug()) console.error('[ACLED DEBUG]', ...args);
+}
+
+function emptySession() {
+  sessionCache = {
+    cookies: null,
+    token: null,
+    refreshToken: null,
+    method: null,
+    expires: 0,
+    refreshExpires: 0,
+  };
+}
+
+function invalidateAccessToken() {
+  sessionCache.token = null;
+  sessionCache.expires = 0;
+}
+
+function accessTokenValid() {
+  return sessionCache.method === 'oauth'
+    && typeof sessionCache.token === 'string'
+    && sessionCache.token.length > 0
+    && Date.now() < sessionCache.expires - TOKEN_SKEW_MS;
+}
+
+function refreshTokenValid() {
+  return typeof sessionCache.refreshToken === 'string'
+    && sessionCache.refreshToken.length > 0
+    && Date.now() < sessionCache.refreshExpires;
+}
+
+function parseOAuthTokenResponse(data) {
+  if (!data || typeof data !== 'object') {
+    return { error: 'OAuth response was not a JSON object' };
+  }
+
+  const token = typeof data.access_token === 'string' ? data.access_token.trim() : '';
+  if (!token || token.length < 8) {
+    return { error: `Invalid access_token in OAuth response: ${JSON.stringify(data).slice(0, 200)}` };
+  }
+
+  const tokenType = String(data.token_type || 'Bearer').toLowerCase();
+  if (tokenType !== 'bearer') {
+    return { error: `Unexpected token_type "${data.token_type}" (expected Bearer)` };
+  }
+
+  const expiresIn = Number(data.expires_in);
+  const ttlSec = Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : DEFAULT_ACCESS_TTL_SEC;
+
+  const refreshToken = typeof data.refresh_token === 'string' && data.refresh_token.trim().length > 0
+    ? data.refresh_token.trim()
+    : null;
+
+  return {
+    token,
+    refreshToken,
+    expires: Date.now() + ttlSec * 1000,
+    refreshExpires: refreshToken ? Date.now() + REFRESH_TTL_MS : 0,
+  };
+}
+
+async function postOAuthToken(body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const raw = await res.text().catch(() => '');
+    let data;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      return { error: `OAuth response was not JSON (HTTP ${res.status}): ${raw.slice(0, 200)}` };
+    }
+
+    if (!res.ok) {
+      const msg = data?.error_description || data?.message || data?.error || raw.slice(0, 200);
+      return { error: `OAuth failed (HTTP ${res.status}): ${msg}` };
+    }
+
+    return parseOAuthTokenResponse(data);
+  } catch (e) {
+    clearTimeout(timer);
+    const cause = e.cause ? ` → ${e.cause.message || e.cause.code || e.cause}` : '';
+    return { error: `OAuth error: ${e.message}${cause}` };
+  }
+}
+
+// OAuth2 password grant — https://acleddata.com/api-documentation/getting-started
+async function loginOAuth(email, password) {
+  const body = new URLSearchParams({
+    username: email,
+    password,
+    grant_type: 'password',
+    client_id: 'acled',
+    scope: 'authenticated',
+  });
+  return postOAuthToken(body);
+}
+
+// OAuth2 refresh grant — avoids re-posting password when access token expires
+async function refreshOAuthToken(refreshToken) {
+  const body = new URLSearchParams({
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token',
+    client_id: 'acled',
+  });
+  return postOAuthToken(body);
+}
+
+// Lightweight read to confirm the bearer token can access ACLED data
+async function probeAccessToken(token) {
+  const params = new URLSearchParams({ _format: 'json', limit: '1' });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(`${API_BASE}?${params}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': 'Crucix/1.0',
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    const raw = await res.text().catch(() => '');
+    let data;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      return { error: `Token probe returned non-JSON (HTTP ${res.status}): ${raw.slice(0, 200)}` };
+    }
+
+    if (!res.ok) {
+      const msg = data?.message || raw.slice(0, 200);
+      return { error: `Token probe failed (HTTP ${res.status}): ${msg}` };
+    }
+
+    if (data?.status && data.status !== 200) {
+      return { error: `Token probe API error: status ${data.status} — ${data.message || 'Unknown error'}` };
+    }
+
+    if (!Array.isArray(data?.data)) {
+      return { error: 'Token probe succeeded but response missing data array' };
+    }
+
+    return { ok: true };
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') return { error: 'Token probe timed out (15s)' };
+    return { error: `Token probe error: ${e.message}` };
+  }
+}
+
+function applyOAuthSession(parsed, { keepRefreshOnMissing = true } = {}) {
+  const refreshToken = parsed.refreshToken
+    || (keepRefreshOnMissing ? sessionCache.refreshToken : null);
+  const refreshExpires = parsed.refreshToken
+    ? parsed.refreshExpires
+    : (keepRefreshOnMissing ? sessionCache.refreshExpires : 0);
+
+  sessionCache = {
+    cookies: null,
+    token: parsed.token,
+    refreshToken,
+    method: 'oauth',
+    expires: parsed.expires,
+    refreshExpires,
+  };
+  return sessionCache;
+}
+
+async function establishOAuthSession(tokenResult) {
+  if (tokenResult.error) return tokenResult;
+
+  const probe = await probeAccessToken(tokenResult.token);
+  if (probe.error) {
+    return { error: `OAuth token rejected by ACLED API: ${probe.error}` };
+  }
+
+  applyOAuthSession(tokenResult);
+  debugLog(`OAuth session ready — access expires in ${Math.round((sessionCache.expires - Date.now()) / 60000)} min`
+    + (sessionCache.refreshToken ? ', refresh token cached' : ''));
+  return sessionCache;
+}
+
+// Cookie-based session login (mirrors browser / Postman flow)
 async function loginCookie(email, password) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
@@ -29,7 +240,6 @@ async function loginCookie(email, password) {
     });
     clearTimeout(timer);
 
-    // Collect Set-Cookie headers
     const setCookies = res.headers.getSetCookie?.() || [];
     const cookieStr = setCookies.map(c => c.split(';')[0]).join('; ');
 
@@ -37,7 +247,6 @@ async function loginCookie(email, password) {
       return { cookies: cookieStr };
     }
 
-    // Some Drupal sites return 303 redirect on successful login — cookies still set
     if (res.status >= 300 && res.status < 400 && cookieStr) {
       return { cookies: cookieStr };
     }
@@ -51,91 +260,94 @@ async function loginCookie(email, password) {
   }
 }
 
-// Strategy 2: OAuth2 password grant
-async function loginOAuth(email, password) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  try {
-    const body = new URLSearchParams({
-      username: email,
-      password: password,
-      grant_type: 'password',
-      client_id: 'acled',
-    });
-
-    const res = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      return { error: `OAuth failed (HTTP ${res.status}): ${errText.slice(0, 200)}` };
-    }
-
-    const data = await res.json();
-    if (!data.access_token) {
-      return { error: `OAuth response missing access_token: ${JSON.stringify(data).slice(0, 200)}` };
-    }
-
-    return { token: data.access_token };
-  } catch (e) {
-    clearTimeout(timer);
-    const cause = e.cause ? ` → ${e.cause.message || e.cause.code || e.cause}` : '';
-    return { error: `OAuth error: ${e.message}${cause}` };
-  }
-}
-
-// Try both auth strategies
 async function authenticate() {
-  const email    = process.env.ACLED_EMAIL;
+  const email = process.env.ACLED_EMAIL;
   const password = process.env.ACLED_PASSWORD;
   if (!email || !password) {
     return { error: 'No ACLED credentials. Set ACLED_EMAIL and ACLED_PASSWORD in .env.' };
   }
 
-  // Return cached session if still valid
-  if (sessionCache.method && Date.now() < sessionCache.expires) {
+  if (accessTokenValid()) {
     return sessionCache;
   }
 
   const errors = [];
-  const debug = process.argv.includes('--debug');
 
-  // Try OAuth first (official programmatic method per ACLED docs)
+  // Refresh access token without re-posting password
+  if (refreshTokenValid()) {
+    debugLog('Access token expired — refreshing via refresh_token');
+    const refreshed = await refreshOAuthToken(sessionCache.refreshToken);
+    if (refreshed.token) {
+      const session = await establishOAuthSession(refreshed);
+      if (!session.error) return session;
+      errors.push(`Refresh+probe: ${session.error}`);
+      debugLog(session.error);
+    } else {
+      errors.push(`Refresh: ${refreshed.error}`);
+      debugLog(refreshed.error);
+    }
+    sessionCache.refreshToken = null;
+    sessionCache.refreshExpires = 0;
+  }
+
+  // Password grant (initial login or after refresh failure)
+  debugLog('Requesting new OAuth access token (password grant)');
   const oauthResult = await loginOAuth(email, password);
   if (oauthResult.token) {
-    if (debug) console.error(`[ACLED DEBUG] OAuth OK — token: ${oauthResult.token.slice(0, 20)}...`);
-    sessionCache = { cookies: null, token: oauthResult.token, method: 'oauth', expires: Date.now() + 23 * 60 * 60 * 1000 };
-    return sessionCache;
+    const session = await establishOAuthSession(oauthResult);
+    if (!session.error) return session;
+    errors.push(`OAuth+probe: ${session.error}`);
+    debugLog(session.error);
+  } else {
+    errors.push(`OAuth: ${oauthResult.error}`);
+    debugLog(oauthResult.error);
   }
-  errors.push(`OAuth: ${oauthResult.error}`);
-  if (debug) console.error(`[ACLED DEBUG] OAuth failed: ${oauthResult.error}`);
 
   // Fall back to cookie-based session
   const cookieResult = await loginCookie(email, password);
   if (cookieResult.cookies) {
-    if (debug) console.error(`[ACLED DEBUG] Cookie OK — cookies: ${cookieResult.cookies.slice(0, 80)}...`);
-    sessionCache = { cookies: cookieResult.cookies, token: null, method: 'cookie', expires: Date.now() + 12 * 60 * 60 * 1000 };
+    debugLog(`Cookie session OK — cookies: ${cookieResult.cookies.slice(0, 80)}...`);
+    sessionCache = {
+      cookies: cookieResult.cookies,
+      token: null,
+      refreshToken: null,
+      method: 'cookie',
+      expires: Date.now() + 12 * 60 * 60 * 1000,
+      refreshExpires: 0,
+    };
     return sessionCache;
   }
   errors.push(`Cookie: ${cookieResult.error}`);
 
+  emptySession();
   return { error: `All ACLED auth methods failed.\n${errors.join('\n')}` };
 }
 
-// Build headers based on auth method
 function authHeaders(session) {
   const headers = { 'User-Agent': 'Crucix/1.0', 'Content-Type': 'application/json' };
   if (session.method === 'cookie' && session.cookies) {
-    headers['Cookie'] = session.cookies;
+    headers.Cookie = session.cookies;
   } else if (session.method === 'oauth' && session.token) {
-    headers['Authorization'] = `Bearer ${session.token}`;
+    headers.Authorization = `Bearer ${session.token}`;
   }
   return headers;
+}
+
+async function fetchAcledData(url, session) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    const res = await fetch(url, {
+      headers: authHeaders(session),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const errText = await res.text().catch(() => '');
+    return { res, errText };
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
 }
 
 // Event type constants
@@ -159,7 +371,7 @@ export async function getEvents(opts = {}) {
     region,
   } = opts;
 
-  const session = await authenticate();
+  let session = await authenticate();
   if (session.error) return { error: session.error };
 
   const params = new URLSearchParams({ _format: 'json', limit: String(limit) });
@@ -171,29 +383,28 @@ export async function getEvents(opts = {}) {
   if (country) params.set('country', country);
   if (region) params.set('region', String(region));
 
-  const debug = process.argv.includes('--debug');
+  const url = `${API_BASE}?${params}`;
+
   try {
-    const url = `${API_BASE}?${params}`;
-    const hdrs = authHeaders(session);
-    if (debug) {
-      console.error(`[ACLED DEBUG] Data request: GET ${url}`);
-      console.error(`[ACLED DEBUG] Headers: ${JSON.stringify(hdrs)}`);
+    let { res, errText } = await fetchAcledData(url, session);
+    debugLog(`Data response: HTTP ${res.status}`);
+
+    // On 401, invalidate access token and retry once (refresh or password grant)
+    if (res.status === 401 && session.method === 'oauth') {
+      debugLog('Data request 401 — re-authenticating');
+      invalidateAccessToken();
+      session = await authenticate();
+      if (session.error) {
+        return { error: `ACLED re-auth after 401 failed: ${session.error}` };
+      }
+      ({ res, errText } = await fetchAcledData(url, session));
+      debugLog(`Retry data response: HTTP ${res.status}`);
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25000);
-    const res = await fetch(url, {
-      headers: hdrs,
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (debug) console.error(`[ACLED DEBUG] Data response: HTTP ${res.status}`);
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      if (debug) console.error(`[ACLED DEBUG] Error body: ${errText.slice(0, 500)}`);
+      if (isDebug()) debugLog(`Error body: ${errText.slice(0, 500)}`);
       if (res.status === 401 || res.status === 403) {
-        // Clear cache and report
-        sessionCache = { cookies: null, token: null, method: null, expires: 0 };
+        emptySession();
         const hint = res.status === 403
           ? '\n→ Fix: Log in at https://acleddata.com/user/login, then:\n'
             + '  1. Accept Terms of Use (profile → Terms of Use button → check the box)\n'
@@ -206,9 +417,8 @@ export async function getEvents(opts = {}) {
       return { error: `HTTP ${res.status}: ${errText.slice(0, 200)}` };
     }
 
-    const data = await res.json();
+    const data = JSON.parse(errText || '{}');
 
-    // ACLED may return a 200 with an error status in the body
     if (data?.status && data.status !== 200) {
       return { error: `ACLED API error: status ${data.status} — ${data.message || 'Unknown error'}` };
     }
@@ -261,7 +471,6 @@ export async function briefing() {
 
   let events = data?.data || [];
 
-  // Enrich all events with numeric lat/lon
   events = events.map(e => ({
     ...e,
     lat: parseFloat(e.latitude) || null,
@@ -309,6 +518,9 @@ export async function briefing() {
     deadliestEvents,
   };
 }
+
+// Exported for scripts/test-acled.mjs
+export { authenticate, probeAccessToken, refreshOAuthToken, loginOAuth };
 
 if (process.argv[1]?.endsWith('acled.mjs')) {
   const data = await briefing();
