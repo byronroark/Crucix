@@ -15,7 +15,8 @@
     "fresh-start": "npm run clean && npm start",
     "test:telegram": "node scripts/test-telegram.mjs",
     "test:custom-source": "node scripts/test-custom-source.mjs",
-    "geocode:query": "node scripts/geocode-query.mjs"
+    "geocode:query": "node scripts/geocode-query.mjs",
+    "test:intel-analysis": "node scripts/test-intel-analysis.mjs"
   },
   "keywords": [
     "osint",
