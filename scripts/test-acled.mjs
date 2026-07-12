@@ -4,7 +4,11 @@
 // Usage:
 //   npm run test:acled
 //   npm run test:acled -- --debug
+//   npm run test:acled -- --fresh   # clear token cache, re-auth from .env
 
+import { existsSync, unlinkSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import '../apis/utils/env.mjs';
 import {
   authenticate,
@@ -16,6 +20,13 @@ import {
 } from '../apis/sources/acled.mjs';
 
 const debug = process.argv.includes('--debug');
+const fresh = process.argv.includes('--fresh');
+
+const CACHE_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'runs', '.cache', 'acled-oauth.json');
+if (fresh && existsSync(CACHE_FILE)) {
+  unlinkSync(CACHE_FILE);
+  console.log(`[test-acled] --fresh: removed ${CACHE_FILE}`);
+}
 
 const hasToken = Boolean(process.env.ACLED_ACCESS_TOKEN?.trim());
 const hasPassword = Boolean(process.env.ACLED_EMAIL && process.env.ACLED_PASSWORD);

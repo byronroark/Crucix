@@ -8,7 +8,7 @@
 // Docs: https://acleddata.com/api-documentation/getting-started
 
 import { execFile, execFileSync } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { mkdtemp, readFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
@@ -488,6 +488,35 @@ function emptySession() {
   };
 }
 
+function invalidateTokenCacheFile() {
+  try {
+    if (existsSync(TOKEN_CACHE_FILE)) {
+      unlinkSync(TOKEN_CACHE_FILE);
+      debugLog(`Removed stale token cache: ${TOKEN_CACHE_FILE}`);
+    }
+  } catch (err) {
+    debugLog('Failed to remove token cache:', err.message);
+  }
+}
+
+async function verifyOAuthSessionCanRead(session) {
+  if (!session?.token) return { error: 'No access token in session' };
+  const probe = await probeAccessToken(session.token);
+  if (!probe.error) return session;
+  return { error: `OAuth token cannot read ACLED event data: ${probe.error}` };
+}
+
+async function tryReturnVerifiedOAuthSession() {
+  if (!accessTokenValid()) return null;
+  const verified = await verifyOAuthSessionCanRead(sessionCache);
+  if (!verified.error) return verified;
+  debugLog(verified.error);
+  noteAuthAttempt(verified.error);
+  invalidateAccessToken();
+  if (/403|401/.test(verified.error)) invalidateTokenCacheFile();
+  return null;
+}
+
 function invalidateAccessToken() {
   sessionCache.token = null;
   sessionCache.expires = 0;
@@ -737,12 +766,12 @@ async function authenticate() {
 
   lastAuthDiagnostics.attempts = [];
 
-  if (accessTokenValid()) {
-    return sessionCache;
-  }
+  const cached = await tryReturnVerifiedOAuthSession();
+  if (cached) return cached;
 
-  if (loadTokenCacheIntoSession() && accessTokenValid()) {
-    return sessionCache;
+  if (loadTokenCacheIntoSession()) {
+    const fromDisk = await tryReturnVerifiedOAuthSession();
+    if (fromDisk) return fromDisk;
   }
 
   const errors = [];
@@ -893,7 +922,10 @@ export async function getEvents(opts = {}) {
       }
       if (status === 401 || status === 403) {
         emptySession();
-        const hint = status === 403 ? acledAccessDeniedHint(403) : '';
+        invalidateTokenCacheFile();
+        const email = cleanEnvToken(process.env.ACLED_EMAIL);
+        const emailHint = email ? `\n  Configured account: ${email}` : '';
+        const hint = status === 403 ? acledAccessDeniedHint(403) + emailHint : '';
         return { error: `ACLED data access denied (HTTP ${status}, auth method: ${session.method}). Response: ${errText.slice(0, 300)}${hint}` };
       }
       return { error: `HTTP ${status}: ${errText.slice(0, 200)}` };
