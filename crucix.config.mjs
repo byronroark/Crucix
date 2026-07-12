@@ -202,6 +202,7 @@ export default {
   marketIntelDefaults: [
     { symbol: 'BTC-USD', name: 'Bitcoin', assetClass: 'crypto', aliases: ['Bitcoin', 'BTC'] },
     { symbol: 'XRP-USD', name: 'XRP', assetClass: 'crypto', aliases: ['XRP', 'Ripple'] },
+    { symbol: 'XLM-USD', name: 'Stellar', assetClass: 'crypto', aliases: ['Stellar', 'XLM'] },
     { symbol: 'ETH-USD', name: 'Ethereum', assetClass: 'crypto', aliases: ['Ethereum', 'ETH'] },
     { symbol: 'GC=F', name: 'Gold', assetClass: 'commodity', aliases: ['Gold', 'COMEX gold'] },
     { symbol: 'SI=F', name: 'Silver', assetClass: 'commodity', aliases: ['Silver', 'COMEX silver'] },

@@ -22,6 +22,7 @@ export const CORE_SYMBOLS = {
   'NG=F': 'Natural Gas',
   'BTC-USD': 'Bitcoin',
   'XRP-USD': 'XRP',
+  'XLM-USD': 'Stellar',
   'ETH-USD': 'Ethereum',
   '^VIX': 'VIX',
 };
@@ -124,7 +125,9 @@ export async function collect() {
     }
   }
 
+  const coreSymSet = new Set(Object.keys(CORE_SYMBOLS));
   const tracked = watchlist
+    .filter(w => !coreSymSet.has(w.symbol))
     .map(w => quotes[w.symbol])
     .filter(q => q && !q.error);
 
@@ -140,7 +143,7 @@ export async function collect() {
     indexes: pickGroup(quotes, ['^GSPC', '^IXIC', '^DJI', '^RUT']),
     rates: pickGroup(quotes, ['TLT', 'HYG', 'LQD']),
     commodities: pickGroup(quotes, ['GC=F', 'SI=F', 'CL=F', 'BZ=F', 'NG=F']),
-    crypto: pickGroup(quotes, ['BTC-USD', 'XRP-USD', 'ETH-USD']),
+    crypto: pickGroup(quotes, ['BTC-USD', 'XRP-USD', 'XLM-USD', 'ETH-USD']),
     volatility: pickGroup(quotes, ['^VIX']),
     tracked,
     watchlistSymbols: [...watchlistSyms],

@@ -18,6 +18,7 @@ These are **always** monitored for news (no need to add via + Track):
 |--------|------|
 | BTC-USD | Bitcoin |
 | XRP-USD | XRP |
+| XLM-USD | Stellar |
 | ETH-USD | Ethereum |
 | GC=F | Gold |
 | SI=F | Silver |

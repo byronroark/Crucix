@@ -511,7 +511,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
       <div>
         <div class="glossary-kicker">Market Watchlist</div>
         <div class="glossary-title">Track stocks &amp; crypto</div>
-        <div class="glossary-sub">Add symbols for extra price tiles and symbol-scoped news. BTC, ETH, XRP, Gold, and Silver are always monitored in Market Intelligence below.</div>
+        <div class="glossary-sub">Add symbols for extra price tiles and news. BTC, ETH, XRP, XLM, Gold, and Silver are always on the dashboard.</div>
       </div>
       <button class="glossary-close" onclick="closeMarketWatchlist()" aria-label="Close watchlist settings">&times;</button>
     </div>
@@ -1845,7 +1845,7 @@ function renderLower(){
   const miEmpty = `<div style="padding:16px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
         <div style="font-size:22px;margin-bottom:8px;opacity:0.3">&#8987;</div>
         <div>NO RECENT HEADLINES</div>
-        <div style="font-size:9px;margin-top:6px;opacity:0.6">No GDELT hits for BTC, ETH, XRP, Gold, Silver, or your + Track symbols this sweep. Use <button class="guide-btn" style="margin-top:6px" type="button" onclick="openMarketWatchlist()">+ Track</button> for more.</div>
+        <div style="font-size:9px;margin-top:6px;opacity:0.6">No GDELT hits for BTC, ETH, XRP, XLM, Gold, Silver, or your + Track symbols this sweep. Use <button class="guide-btn" style="margin-top:6px" type="button" onclick="openMarketWatchlist()">+ Track</button> for more.</div>
       </div>`;
   const marketIntelPanel = `<div class="g-panel lp-market-intel">
       <div class="sec-head"><h3>${t('panels.marketIntel','Market Intelligence')}</h3>${miBadge}${miSymCount ? `<span class="badge">${miSymCount} ${t('badges.symbols','SYMBOLS')}</span>` : ''}</div>
