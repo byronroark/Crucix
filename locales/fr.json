@@ -108,7 +108,13 @@
     "weatherAlert": "Alerte Météo",
     "epaRadNet": "EPA RadNet",
     "spaceStation": "Station Spatiale",
-    "gdeltEvent": "Événement GDELT"
+    "gdeltEvent": "Événement GDELT",
+    "customOsint": "OSINT Personnalisé",
+    "layerFilters": "Couches Carte",
+    "showAll": "Tout",
+    "hideAll": "Aucun",
+    "layerOn": "ON",
+    "layerOff": "OFF"
   },
   "ideas": {
     "confidence": "Confiance",
