@@ -626,6 +626,7 @@ const SPREAD_ZOOM_MIN = 10;
 const SPREAD_ZOOM_MAX = 14;
 const GLOBE_MIN_ALT = 1.8 / SPREAD_ZOOM_MAX;
 const CLUSTER_MERGE_PX = 10;
+const PACK_GAP_PX = 1.5;
 const DEFAULT_MARKER_RADIUS_PX = 3;
 const SPREADABLE_TYPES = new Set(['news', 'custom', 'gdelt', 'weather', 'earthquake', 'osint', 'health', 'thermal', 'sdr', 'radiation']);
 
@@ -692,7 +693,7 @@ function packClusterAroundCentroid(items) {
         let dx = positions[j].sx - positions[i].sx;
         let dy = positions[j].sy - positions[i].sy;
         let dist = Math.hypot(dx, dy) || 0.001;
-        const minDist = positions[i].radius + positions[j].radius;
+        const minDist = positions[i].radius + positions[j].radius + PACK_GAP_PX;
         if (dist < minDist) {
           const push = (minDist - dist) / 2;
           const nx = dx / dist;
@@ -705,8 +706,8 @@ function packClusterAroundCentroid(items) {
       }
     }
     for (const p of positions) {
-      p.sx += (cx - p.sx) * 0.08;
-      p.sy += (cy - p.sy) * 0.08;
+      p.sx += (cx - p.sx) * 0.06;
+      p.sy += (cy - p.sy) * 0.06;
     }
   }
   positions.forEach(p => out.set(p.id, { sx: p.sx, sy: p.sy }));
@@ -1469,11 +1470,11 @@ function plotMarkers(){
 
   // === Custom OSINT sources (purple) ===
   if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{
+    const pop=formatCustomGeoPopup(c);
     pushMapPoint(points, {
       lat:c.lat, lng:c.lon, size:0.22, alt:0.012,
       color:'rgba(206,147,216,0.8)', type:'custom', priority:3,
-      popHead:(c.source||'CUSTOM').toUpperCase(), popMeta:`${c.region||'Custom'} · ${getAge(c.date)}`,
-      popText:cleanText(c.title)
+      popHead:pop.head, popMeta:pop.meta, popText:pop.text
     });
   });
 
@@ -1837,7 +1838,10 @@ function plotFlatMarkers(){
   // News
   if (layerVisible('news')) (D.news||[]).forEach(n=>{addPt(n.lat,n.lon,3,'rgba(129,212,250,0.6)','rgba(129,212,250,0.2)',ev=>showPopup(ev,n.source+' NEWS',cleanText(n.title),n.region),3,'news')});
   // Custom OSINT sources
-  if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{addPt(c.lat,c.lon,3,'rgba(206,147,216,0.7)','rgba(206,147,216,0.25)',ev=>showPopup(ev,(c.source||'CUSTOM').toUpperCase()+' · CUSTOM',cleanText(c.title),c.region||'Custom'),3,'custom')});
+  if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{
+    const pop=formatCustomGeoPopup(c);
+    addPt(c.lat,c.lon,3,'rgba(206,147,216,0.7)','rgba(206,147,216,0.25)',ev=>showPopup(ev,pop.head,pop.text,pop.meta),3,'custom');
+  });
   // Unified weather dots
   if (layerVisible('weather')) (D.weatherAlerts?.dots || D.noaa?.alerts || []).forEach(a=>{
     const src = a.sourceLabel || 'NWS';
@@ -2355,6 +2359,13 @@ function renderRight(){
 // === HELPERS ===
 function getAge(d){const ms=Date.now()-new Date(d).getTime();const h=Math.floor(ms/3600000);if(h<1)return 'just now';if(h<24)return h+'h ago';return Math.floor(h/24)+'d ago'}
 function cleanText(t){return t.replace(/&#39;/g,"'").replace(/&#33;/g,"!").replace(/&amp;/g,"&").replace(/<[^>]+>/g,'')}
+function formatCustomGeoPopup(c){
+  const sources=c.sources?.length?c.sources:[{name:c.source,url:c.url,date:c.date}];
+  const head=sources.length>1?`${sources.length} SOURCES · CUSTOM`:`${(c.source||'CUSTOM').toUpperCase()} · CUSTOM`;
+  const meta=sources.length>1?sources.map(s=>(s.name||'Custom').toUpperCase()).join(' · '):`${c.region||'Custom'} · ${getAge(c.date)}`;
+  const text=cleanText(c.title)+(sources.length>1?`<br><span style="opacity:0.65;font-size:10px">${c.region||'Custom'} · ${getAge(c.date)}</span>`:'');
+  return {head,meta,text};
+}
 function safeExternalUrl(raw){try{const u=new URL(raw,location.href);return u.protocol==='http:'||u.protocol==='https:'?u.toString():null}catch{return null}}
 
 // === BOOT SEQUENCE ===
