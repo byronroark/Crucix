@@ -563,6 +563,12 @@ export async function synthesize(data) {
     maxAlerts: config.weatherAlerts?.maxMapAlerts || 25,
   });
 
+  const weatherPanel = buildWeatherPanel({
+    states: config.weatherAlerts?.severeRegions || [],
+    nwsAlerts: data.sources.NOAA?.alerts || [],
+    openWeatherAlerts: owmData.alerts || [],
+  });
+
   const hurricaneTracks = {
     storms: nhcData.storms || [],
     activeCount: nhcData.activeCount || 0,
@@ -775,7 +781,7 @@ export async function synthesize(data) {
     customFeedErrors: cf.errors || [],
     intelAnalysis: [], intelAnalysisSource: config.llm?.provider ? 'pending' : 'disabled',
     // newsFeed for ticker (merged RSS + GDELT + Telegram + custom-ticker)
-    newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop, customTicker),
+    newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop, customTicker, weatherFeedItems(weatherPanel)),
   };
 
   return V2;
