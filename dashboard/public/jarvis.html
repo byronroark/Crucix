@@ -134,8 +134,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .emergency-strip.weather-emergency{animation:weatherPulse 2s ease-in-out infinite}
 .emergency-strip.weather-emergency.extreme{border-color:rgba(255,95,99,0.45);background:rgba(255,95,99,0.08);animation:weatherPulse 1.5s ease-in-out infinite}
 .emergency-strip.weather-emergency.extreme b{color:var(--danger)}
-.lp-weather-panel .weather-radar-map{height:200px;border-radius:4px;border:1px solid rgba(255,152,0,0.15);background:#0a1418;overflow:hidden}
-.lp-weather-panel .weather-radar-map .leaflet-container{background:#0a1418;font-family:var(--mono)}
+.lp-weather-panel .weather-radar-map{height:200px;min-height:200px;border-radius:4px;border:1px solid rgba(255,152,0,0.15);background:#0a1418;overflow:hidden;position:relative;z-index:1}
+.lp-weather-panel .weather-radar-map .leaflet-container{height:100%!important;width:100%!important;background:#0a1418;font-family:var(--mono)}
+.lp-weather-panel{backdrop-filter:none;background:rgba(6,14,22,0.92)}
+.weather-radar-status{font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:4px;min-height:12px}
 .weather-alert-row{font-family:var(--mono);font-size:9px;padding:4px 0;border-top:1px solid rgba(255,255,255,0.04);color:var(--dim);line-height:1.35}
 .weather-alert-row.extreme{color:var(--danger)}
 .weather-radar-controls{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
@@ -1999,6 +2001,8 @@ function mkSparkSvg(values, isGood){
 // === LOWER GRID ===
 let _weatherRadarMap = null;
 let _weatherRadarLoop = null;
+let _weatherRadarInitTimer = null;
+let _weatherMarkerLayer = null;
 
 class WeatherRadarLoop {
   constructor(map, opts = {}) {
@@ -2022,7 +2026,8 @@ class WeatherRadarLoop {
   }
 
   async loadManifest() {
-    const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    const resp = await fetch('/api/weather/radar-manifest');
+    if (!resp.ok) throw new Error(`radar manifest ${resp.status}`);
     const data = await resp.json();
     this.host = data.host || this.host;
     this.frames = data?.radar?.past || [];
@@ -2105,14 +2110,39 @@ function formatRadarTime(unixSec) {
 }
 
 function destroyWeatherRadarMap() {
+  if (_weatherRadarInitTimer) {
+    clearTimeout(_weatherRadarInitTimer);
+    _weatherRadarInitTimer = null;
+  }
   if (_weatherRadarLoop) {
     _weatherRadarLoop.destroy();
     _weatherRadarLoop = null;
   }
+  _weatherMarkerLayer = null;
   if (_weatherRadarMap) {
     _weatherRadarMap.remove();
     _weatherRadarMap = null;
   }
+}
+
+function setWeatherRadarStatus(msg) {
+  const el = document.getElementById('weatherRadarStatus');
+  if (el) el.textContent = msg || '';
+}
+
+function layoutWeatherRadarMap() {
+  if (!_weatherRadarMap || !D.weatherPanel?.bbox) return;
+  const bbox = D.weatherPanel.bbox;
+  _weatherRadarMap.invalidateSize();
+  _weatherRadarMap.fitBounds([[bbox.south, bbox.west], [bbox.north, bbox.east]], { padding: [8, 8] });
+}
+
+function scheduleWeatherRadarInit() {
+  if (_weatherRadarInitTimer) clearTimeout(_weatherRadarInitTimer);
+  _weatherRadarInitTimer = setTimeout(() => {
+    _weatherRadarInitTimer = null;
+    initWeatherRadarMap();
+  }, 200);
 }
 
 async function initWeatherRadarMap() {
@@ -2120,7 +2150,10 @@ async function initWeatherRadarMap() {
   if (!el || !D.weatherPanel?.bbox) return;
 
   destroyWeatherRadarMap();
-  if (typeof L === 'undefined') return;
+  if (typeof L === 'undefined') {
+    setWeatherRadarStatus('Map library failed to load (check CDN).');
+    return;
+  }
 
   const wp = D.weatherPanel;
   const bbox = wp.bbox;
@@ -2130,14 +2163,21 @@ async function initWeatherRadarMap() {
     attributionControl: false,
     dragging: true,
     scrollWheelZoom: false,
+    preferCanvas: true,
   });
 
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
+    subdomains: 'abcd',
+    errorTileUrl: '',
   }).addTo(_weatherRadarMap);
 
-  _weatherRadarMap.fitBounds([[bbox.south, bbox.west], [bbox.north, bbox.east]], { padding: [8, 8] });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    opacity: 0.35,
+  }).addTo(_weatherRadarMap);
 
+  _weatherMarkerLayer = L.layerGroup().addTo(_weatherRadarMap);
   for (const a of (wp.alerts || [])) {
     if (a.lat == null || a.lon == null) continue;
     const color = a.severity === 'Extreme' ? '#ff5f63' : '#ff9800';
@@ -2147,8 +2187,13 @@ async function initWeatherRadarMap() {
       fillColor: color,
       fillOpacity: 0.7,
       weight: 1,
-    }).bindPopup(`${cleanText(a.event || '')}<br>${cleanText(a.headline || '')}`).addTo(_weatherRadarMap);
+    }).bindPopup(`${cleanText(a.event || '')}<br>${cleanText(a.headline || '')}`).addTo(_weatherMarkerLayer);
   }
+
+  requestAnimationFrame(() => {
+    layoutWeatherRadarMap();
+    requestAnimationFrame(() => layoutWeatherRadarMap());
+  });
 
   if (!lowPerfMode) {
     const controls = document.getElementById('weatherRadarControls');
@@ -2177,6 +2222,7 @@ async function initWeatherRadarMap() {
     try {
       const ok = await _weatherRadarLoop.loadManifest();
       if (ok) {
+        setWeatherRadarStatus('');
         scrub?.addEventListener('input', () => {
           _weatherRadarLoop?.seek(parseInt(scrub.value, 10));
         });
@@ -2186,11 +2232,17 @@ async function initWeatherRadarMap() {
           _weatherRadarLoop?.setSpeed(parseFloat(speedSel.value) || 1);
         });
         _weatherRadarLoop.play();
+        setTimeout(layoutWeatherRadarMap, 150);
+      } else {
+        setWeatherRadarStatus('Radar frames unavailable — showing map only.');
       }
-    } catch (_) { /* radar loop optional */ }
+    } catch (err) {
+      setWeatherRadarStatus('Radar overlay unavailable — showing map only.');
+      console.warn('[Crucix] Weather radar loop failed:', err?.message || err);
+    }
+  } else {
+    setWeatherRadarStatus('');
   }
-
-  setTimeout(() => _weatherRadarMap?.invalidateSize(), 120);
 }
 
 function renderLower(){
@@ -2398,6 +2450,7 @@ function renderLower(){
       <div class="sec-head"><h3>${t('panels.localWeatherRadar','Local Weather Radar')}</h3><span class="badge" style="color:#ff8a65;border-color:rgba(255,138,101,0.4)">${wp.regionLabel || ''}</span><span class="badge">${lowPerfMode ? t('badges.liveRadar','LIVE RADAR') : t('badges.radarLoop','RADAR LOOP')}</span></div>
       ${weatherEmergency}
       <div id="weatherRadarMap" class="weather-radar-map"></div>
+      <div class="weather-radar-status" id="weatherRadarStatus"></div>
       ${lowPerfMode ? '' : `<div class="weather-radar-controls" id="weatherRadarControls">
         <button type="button" class="guide-btn weather-radar-btn" data-action="prev" title="${t('weather.prev','Previous')}">&#9664;</button>
         <button type="button" class="guide-btn weather-radar-btn" data-action="play" title="${t('weather.play','Play')}">&#9654;</button>
@@ -2549,7 +2602,7 @@ function renderLower(){
     </div>`;
 
   document.getElementById('lowerGrid').innerHTML=`${tickerColumn}${osintPanel}${macroColumn}${ideasPanel}${intelPanel}`;
-  if (D.weatherPanel?.bbox) initWeatherRadarMap();
+  if (D.weatherPanel?.bbox) scheduleWeatherRadarInit();
   else destroyWeatherRadarMap();
 }
 

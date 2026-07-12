@@ -577,6 +577,19 @@ app.get('/api/data', (req, res) => {
   res.json(currentData);
 });
 
+// RainViewer manifest proxy (same-origin for browser radar loop)
+app.get('/api/weather/radar-manifest', async (req, res) => {
+  try {
+    const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return res.status(resp.status).json({ error: `RainViewer ${resp.status}` });
+    res.json(await resp.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message || 'RainViewer fetch failed' });
+  }
+});
+
 // API: health check
 app.get('/api/health', (req, res) => {
   res.json({
