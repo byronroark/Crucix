@@ -18,6 +18,7 @@ import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
 import { geoTagText, RSS_SOURCE_FALLBACKS } from '../lib/geocode/keywords.mjs';
 import { buildCustomGeo } from '../lib/geocode/build-custom-geo.mjs';
 import { mergeWeatherDots } from '../lib/weather/merge-weather-alerts.mjs';
+import { buildWeatherPanel, weatherFeedItems } from '../lib/weather/build-weather-panel.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -207,7 +208,7 @@ export function generateIdeas(V2) {
   if (vix && vix.value > 20) {
     ideas.push({
       title: 'Elevated Volatility Regime',
-      text: `VIX at ${vix.value} ‚Äî fear premium elevated. Portfolio hedges justified. Short-term equity upside is capped.`,
+      text: `VIX at ${vix.value} ù fear premium elevated. Portfolio hedges justified. Short-term equity upside is capped.`,
       type: 'hedge', confidence: vix.value > 25 ? 'High' : 'Medium', horizon: 'tactical'
     });
   }
@@ -233,7 +234,7 @@ export function generateIdeas(V2) {
   if (spread) {
     ideas.push({
       title: spread.value > 0 ? 'Yield Curve Normalizing' : 'Yield Curve Inverted',
-      text: `10Y-2Y spread at ${spread.value.toFixed(2)}. ${spread.value > 0 ? 'Recession signal fading ‚Äî cyclical rotation possible.' : 'Inversion persists ‚Äî defensive positioning warranted.'}`,
+      text: `10Y-2Y spread at ${spread.value.toFixed(2)}. ${spread.value > 0 ? 'Recession signal fading ù cyclical rotation possible.' : 'Inversion persists ù defensive positioning warranted.'}`,
       type: 'watch', confidence: 'Medium', horizon: 'strategic'
     });
   }
@@ -273,7 +274,7 @@ export function generateIdeas(V2) {
   if (conflictEvents > 50 && V2.energy.wtiRecent.length > 1) {
     const wtiMove = V2.energy.wtiRecent[0] - V2.energy.wtiRecent[V2.energy.wtiRecent.length - 1];
     const acledRange = V2.acled?.period
-      ? `${V2.acled.period.start}‚Äì${V2.acled.period.end}`
+      ? `${V2.acled.period.start}ù${V2.acled.period.end}`
       : 'lagged window';
     if (wtiMove > 2) {
       ideas.push({
@@ -310,7 +311,7 @@ export function generateIdeas(V2) {
     } else if (hyTight && vixHigh) {
       ideas.push({
         title: 'Equity Fear Exceeds Credit Stress',
-        text: `VIX at ${vix.value.toFixed(0)} but HY spread only ${hy.value.toFixed(1)}%. Equity vol may be overshooting ‚Äî credit markets aren't confirming.`,
+        text: `VIX at ${vix.value.toFixed(0)} but HY spread only ${hy.value.toFixed(1)}%. Equity vol may be overshooting ù credit markets aren't confirming.`,
         type: 'watch', confidence: 'Medium', horizon: 'tactical'
       });
     }
@@ -325,7 +326,7 @@ export function generateIdeas(V2) {
     if (supplyPressure && ppiRising) {
       ideas.push({
         title: 'Inflation Pipeline Building Pressure',
-        text: `GSCPI at ${V2.gscpi.value.toFixed(2)} (${V2.gscpi.interpretation}) + PPI momentum +${ppi.momChangePct?.toFixed(1)}%. Input costs flowing through ‚Äî CPI may follow.`,
+        text: `GSCPI at ${V2.gscpi.value.toFixed(2)} (${V2.gscpi.interpretation}) + PPI momentum +${ppi.momChangePct?.toFixed(1)}%. Input costs flowing through ù CPI may follow.`,
         type: 'long', confidence: 'Medium', horizon: 'strategic'
       });
     }
@@ -576,7 +577,7 @@ export async function synthesize(data) {
     events: (usgsData.events || []).filter(e => e.lat != null && e.lon != null),
   };
 
-  // EPA RadNet ‚Äî pass through geo-tagged readings
+  // EPA RadNet ù pass through geo-tagged readings
   const epaData = data.sources.EPA || {};
   const epaStations = [];
   const seenEpa = new Set();
@@ -763,7 +764,7 @@ export async function synthesize(data) {
     },
     sdr: { total: sdrNet.totalReceivers || 0, online: sdrNet.online || 0, zones: sdrZones },
     tg: { posts: tgData.totalPosts || 0, urgent: tgUrgent, topPosts: tgTop },
-    who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, weatherAlerts, hurricaneTracks, earthquakes, epa, acled, gdelt, space, health, news,
+    who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, weatherAlerts, weatherPanel, hurricaneTracks, earthquakes, epa, acled, gdelt, space, health, news,
     reliefweb, cisa, cloudflare, patents, bluesky, reddit, sanctions, adsb,
     markets, // Live Yahoo Finance market data
     marketNews,
@@ -781,8 +782,13 @@ export async function synthesize(data) {
 }
 
 // === Unified News Feed for Ticker ===
-function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop, customTicker = []) {
+function buildNewsFeed(rssNews, gdeltData, tgUrgent, tgTop, customTicker = [], weatherItems = []) {
   const feed = [];
+
+  for (const w of weatherItems) {
+    if (!w?.headline) continue;
+    feed.push({ ...w });
+  }
 
   // RSS news
   for (const n of rssNews) {

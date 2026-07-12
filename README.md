@@ -534,7 +534,7 @@ crucix/
 | **NOAA/NWS**      | Active US severe weather alerts (map dots + intel)                               | None  |
 | **NHC**           | Active hurricane positions, official track/cone, ATCF model tracks               | None  |
 | **NOAA/SPC**      | Preliminary tornado reports (48h, region-filtered)                               | None  |
-| **OpenWeather**   | Severe warnings for configured US states (optional key)                          | API key |
+| **OpenWeather**   | Severe warnings for configured US states (optional key); also feeds Local Weather Radar panel + Local News ticker | API key |
 | **USGS**          | Earthquakes M4.5+ (hot-pink map layer)                                           | None  |
 | **EPA RadNet**    | US government radiation monitoring                                               | None  |
 | **USPTO Patents** | Patent filings in 7 strategic tech areas                                         | None  |

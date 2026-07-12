@@ -11,6 +11,8 @@
 <script src="https://d3js.org/topojson.v3.min.js"></script>
 <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 <script src="https://unpkg.com/globe.gl@2.33.0"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -128,6 +130,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .hurricane-model-select:focus{outline:none;border-color:var(--border-bright);color:var(--accent)}
 .emergency-strip{margin:0 0 8px;padding:8px 10px;border:1px solid rgba(255,152,0,0.35);background:rgba(255,152,0,0.06);font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.45}
 .emergency-strip b{color:#ff9800}
+@keyframes weatherPulse{0%,100%{opacity:1;border-color:rgba(255,152,0,0.35)}50%{opacity:0.72;border-color:rgba(255,152,0,0.65)}}
+.emergency-strip.weather-emergency{animation:weatherPulse 2s ease-in-out infinite}
+.emergency-strip.weather-emergency.extreme{border-color:rgba(255,95,99,0.45);background:rgba(255,95,99,0.08);animation:weatherPulse 1.5s ease-in-out infinite}
+.emergency-strip.weather-emergency.extreme b{color:var(--danger)}
+.lp-weather-panel .weather-radar-map{height:200px;border-radius:4px;border:1px solid rgba(255,152,0,0.15);background:#0a1418;overflow:hidden}
+.lp-weather-panel .weather-radar-map .leaflet-container{background:#0a1418;font-family:var(--mono)}
+.weather-alert-row{font-family:var(--mono);font-size:9px;padding:4px 0;border-top:1px solid rgba(255,255,255,0.04);color:var(--dim);line-height:1.35}
+.weather-alert-row.extreme{color:var(--danger)}
 .map-ctrl-btn svg{display:block}
 .map-layer-panel{position:absolute;top:96px;left:12px;z-index:7;width:min(240px,calc(100vw - 24px));max-height:min(52vh,420px);overflow:auto;border:1px solid var(--border);background:rgba(0,0,0,0.88);backdrop-filter:blur(10px);padding:8px;display:none;flex-direction:column;gap:4px}
 .map-layer-panel.show{display:flex}
@@ -202,7 +212,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .lower .g-panel{min-width:0;box-sizing:border-box}
 .lower .lp-ticker{flex:1.2 1 240px;max-width:380px}
 .lower .lp-ticker-col{flex:1.2 1 240px;max-width:380px;display:flex;flex-direction:column;gap:10px;min-width:0}
-.lower .lp-ticker-col .lp-ticker,.lower .lp-ticker-col .lp-local-ticker{flex:0 1 auto;max-width:none}
+.lower .lp-ticker-col .lp-ticker,.lower .lp-ticker-col .lp-local-ticker,.lower .lp-ticker-col .lp-weather-panel{flex:0 1 auto;max-width:none}
 .right-delta .delta-list{max-height:200px}
 .lower .lp-macro{flex:2.5 1 360px;overflow:visible;padding-bottom:6px}
 .lower .lp-macro-col{flex:2.5 1 360px;display:flex;flex-direction:column;gap:10px;min-width:0}
@@ -310,6 +320,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .tk-src.us{color:#90caf9;border-color:rgba(144,202,249,0.3)}
 .tk-src.other{color:#b0bec5;border-color:rgba(176,190,197,0.2)}
 .tk-src.fl{color:#ff8a65;border-color:rgba(255,138,101,0.35)}
+.tk-src.weather{color:#ff8a65;border-color:rgba(255,138,101,0.35)}
 .tk-src.cust{color:#ce93d8;border-color:rgba(206,147,216,0.35)}
 .tk-head{font-size:11px;line-height:1.35;color:#c8d8d2;margin-top:3px}
 .tk-time{font-family:var(--mono);font-size:8px;color:var(--dim);margin-top:2px}
@@ -360,7 +371,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
   .map-hint{font-size:8px;right:8px}
   .map-legend{left:8px;right:8px;bottom:8px;gap:4px}
   .leg-item{font-size:8px}
-  .lower .lp-ticker,.lower .lp-ticker-col,.lower .lp-osint,.lower .lp-macro,.lower .lp-macro-col,.lower .lp-market-intel,.lower .lp-ideas,.lower .lp-intel{flex:1 1 100%;max-width:none}
+  .lower .lp-ticker,.lower .lp-ticker-col,.lower .lp-osint,.lower .lp-macro,.lower .lp-macro-col,.lower .lp-market-intel,.lower .lp-ideas,.lower .lp-intel,.lower .lp-weather-panel{flex:1 1 100%;max-width:none}
   .metrics-row{grid-template-columns:repeat(2,1fr)}
   .src-grid{grid-template-columns:repeat(2,1fr)}
   .glossary-panel{top:auto;right:0;left:0;bottom:0;width:100%;max-height:min(72vh,720px);border-left:none;border-right:none;border-bottom:none}
@@ -1971,6 +1982,69 @@ function mkSparkSvg(values, isGood){
 }
 
 // === LOWER GRID ===
+let _weatherRadarMap = null;
+
+function destroyWeatherRadarMap() {
+  if (_weatherRadarMap) {
+    _weatherRadarMap.remove();
+    _weatherRadarMap = null;
+  }
+}
+
+async function initWeatherRadarMap() {
+  const el = document.getElementById('weatherRadarMap');
+  if (!el || !D.weatherPanel?.bbox) return;
+
+  destroyWeatherRadarMap();
+  if (typeof L === 'undefined') return;
+
+  const wp = D.weatherPanel;
+  const bbox = wp.bbox;
+
+  _weatherRadarMap = L.map(el, {
+    zoomControl: false,
+    attributionControl: false,
+    dragging: true,
+    scrollWheelZoom: false,
+  });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+  }).addTo(_weatherRadarMap);
+
+  if (!lowPerfMode) {
+    try {
+      const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+      const data = await resp.json();
+      const past = data?.radar?.past;
+      const frame = past?.length ? past[past.length - 1] : null;
+      if (frame?.path) {
+        const host = data.host || 'https://tilecache.rainviewer.com';
+        L.tileLayer(`${host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+          opacity: 0.65,
+          maxZoom: 12,
+        }).addTo(_weatherRadarMap);
+      }
+    } catch (_) { /* radar overlay optional */ }
+  }
+
+  _weatherRadarMap.fitBounds([[bbox.south, bbox.west], [bbox.north, bbox.east]], { padding: [8, 8] });
+
+  for (const a of (wp.alerts || [])) {
+    if (a.lat == null || a.lon == null) continue;
+    const color = a.severity === 'Extreme' ? '#ff5f63' : '#ff9800';
+    L.circleMarker([a.lat, a.lon], {
+      radius: 5,
+      color,
+      fillColor: color,
+      fillOpacity: 0.7,
+      weight: 1,
+    }).bindPopup(`${cleanText(a.event || '')}<br>${cleanText(a.headline || '')}`).addTo(_weatherRadarMap);
+  }
+
+  setTimeout(() => _weatherRadarMap?.invalidateSize(), 120);
+}
+
 function renderLower(){
   const mobile = isMobileLayout();
   const spread=D.fred.find(f=>f.id==='T10Y2Y');
@@ -2069,8 +2143,16 @@ function renderLower(){
   // NEWS TICKER — merges RSS + GDELT + Telegram + custom into flowing cards
   // Split out Florida / local items into their own ticker below the main one.
   const allFeed = (D.newsFeed || []);
+  const weatherStates = new Set(D.weatherPanel?.regions || []);
+  const isWeatherItem = n => {
+    if (!n || n.type !== 'weather') return false;
+    if (n.state && weatherStates.has(n.state)) return true;
+    const text = `${n.headline || ''} ${n.region || ''}`.toUpperCase();
+    return [...weatherStates].some(st => text.includes(st));
+  };
   const isLocalItem = n => {
     if (!n) return false;
+    if (isWeatherItem(n)) return true;
     if (n.region === 'Florida') return true;
     const h = (n.headline || '').toLowerCase();
     return h.includes('jacksonville') || h.includes('clay county') || h.includes('middleburg')
@@ -2080,7 +2162,8 @@ function renderLower(){
   const localFeed = allFeed.filter(isLocalItem).slice(0, 20);
   const localKeys = new Set(localFeed.map(n => `${n.type}|${n.source}|${n.headline}|${n.timestamp}`));
   const feed = allFeed.filter(n => !localKeys.has(`${n.type}|${n.source}|${n.headline}|${n.timestamp}`)).slice(0, 20);
-  const srcClass = s => {
+  const srcClass = (s, n) => {
+    if (n?.type === 'weather') return 'weather';
     if (!s) return 'other';
     const sl = s.toLowerCase();
     // Local Florida sources first (high specificity)
@@ -2101,7 +2184,7 @@ function renderLower(){
     return 'other';
   };
   const renderCard = n => {
-    const sc = srcClass(n.source);
+    const sc = srcClass(n.source, n);
     const age = n.timestamp ? getAge(n.timestamp) : '';
     const urlAttr = n.url ? ` data-url="${String(n.url).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"` : '';
     return `<div class="tk-card ${n.urgent?'urgent':''} ${n.url?'clickable':''}"${urlAttr}><span class="tk-src ${sc}">${(n.source||'NEWS').substring(0,12)}</span><span class="tk-time">${age}</span><div class="tk-head">${cleanText(n.headline||'')}</div>${n.url?'<span class="tk-link">&#8599;</span>':''}</div>`;
@@ -2149,13 +2232,27 @@ function renderLower(){
         <div class="ticker-track">${tickerCards}${lowPerfMode ? '' : tickerCards}</div>
       </div>
     </div>`;
+  const localRegionBadge = D.weatherPanel?.regionLabel || t('badges.florida', 'FLORIDA');
   const localTickerPanel = localFeed.length ? `<div class="g-panel lp-local-ticker" style="display:flex;flex-direction:column">
-      <div class="sec-head"><h3>${t('panels.localNewsTicker','Local News')}</h3><span class="badge" style="color:#ff8a65;border-color:rgba(255,138,101,0.4)">${t('badges.florida','FLORIDA')}</span><span class="badge">${localFeed.length} ${t('badges.items','ITEMS')}</span></div>
+      <div class="sec-head"><h3>${t('panels.localNewsTicker','Local News')}</h3><span class="badge" style="color:#ff8a65;border-color:rgba(255,138,101,0.4)">${localRegionBadge}</span><span class="badge">${localFeed.length} ${t('badges.items','ITEMS')}</span></div>
       <div class="ticker-wrap" style="--ticker-duration:${localDuration}s">
         <div class="ticker-track">${localCards}${lowPerfMode ? '' : localCards}</div>
       </div>
     </div>` : '';
-  const tickerColumn = `<div class="lp-ticker-col">${tickerPanel}${localTickerPanel}</div>`;
+  const wp = D.weatherPanel;
+  const weatherEmergency = wp?.emergency?.active
+    ? `<div class="emergency-strip weather-emergency${wp.emergency.level === 'extreme' ? ' extreme' : ''}"><b>${t('badges.urgent','URGENT')}</b> ${cleanText(wp.emergency.summary || '')}</div>`
+    : '';
+  const weatherAlertRows = (wp?.alerts || []).slice(0, 4).map(a =>
+    `<div class="weather-alert-row${a.severity === 'Extreme' ? ' extreme' : ''}">${cleanText(a.event || '')}${a.areas ? ` · ${cleanText(a.areas)}` : ''}</div>`
+  ).join('');
+  const weatherPanel = wp ? `<div class="g-panel lp-weather-panel" style="display:flex;flex-direction:column">
+      <div class="sec-head"><h3>${t('panels.localWeatherRadar','Local Weather Radar')}</h3><span class="badge" style="color:#ff8a65;border-color:rgba(255,138,101,0.4)">${wp.regionLabel || ''}</span><span class="badge">${t('badges.liveRadar','LIVE RADAR')}</span></div>
+      ${weatherEmergency}
+      <div id="weatherRadarMap" class="weather-radar-map"></div>
+      ${weatherAlertRows}
+    </div>` : '';
+  const tickerColumn = `<div class="lp-ticker-col">${tickerPanel}${localTickerPanel}${weatherPanel}</div>`;
   const osintPanel = mobile ? buildOsintPanel('lp-osint', 240) : '';
   const macroPanel = `<div class="g-panel lp-macro">
       <div class="sec-head"><h3>${t('panels.macroMarkets','Macro + Markets')}</h3><div style="display:flex;gap:6px;align-items:center"><button class="guide-btn" type="button" onclick="openMarketWatchlist()">+ Track</button><span class="badge">${mkt.timestamp?t('badges.live','LIVE'):t('badges.delayed','DELAYED')}</span></div></div>
@@ -2293,6 +2390,8 @@ function renderLower(){
     </div>`;
 
   document.getElementById('lowerGrid').innerHTML=`${tickerColumn}${osintPanel}${macroColumn}${ideasPanel}${intelPanel}`;
+  if (D.weatherPanel?.bbox) initWeatherRadarMap();
+  else destroyWeatherRadarMap();
 }
 
 // === RIGHT RAIL ===

@@ -12,6 +12,7 @@ output/
 # IDE / Editor
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~

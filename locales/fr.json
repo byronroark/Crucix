@@ -63,7 +63,9 @@
     "cyberWatch": "Surveillance Cyber",
     "spaceWatch": "Surveillance Spatiale",
     "europeAlerts": "Alertes Europe",
-    "ecbIndicators": "Indicateurs BCE"
+    "ecbIndicators": "Indicateurs BCE",
+    "localNewsTicker": "Actualités locales",
+    "localWeatherRadar": "Radar météo local"
   },
   "layers": {
     "airActivity": "Activité Aérienne",
@@ -155,7 +157,9 @@
     "sweeping": "SCAN EN COURS...",
     "europe": "EUROPE",
     "orbital": "ORBITAL",
-    "usgs": "USGS"
+    "usgs": "USGS",
+    "florida": "FLORIDE",
+    "liveRadar": "RADAR EN DIRECT"
   },
   "delta": {
     "baseline": "RÉFÉRENCE",
