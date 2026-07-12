@@ -193,10 +193,19 @@ export default {
   marketIntel: {
     enabled: true,
     maxHeadlinesPerSymbol: 8,
-    maxHeadlinesTotal: 40,
+    maxHeadlinesTotal: 50,
     maxInputChars: 6000,
     gdeltTimespan: '48h',
   },
+
+  // Always included in Market Intelligence news (merged with user watchlist)
+  marketIntelDefaults: [
+    { symbol: 'BTC-USD', name: 'Bitcoin', assetClass: 'crypto', aliases: ['Bitcoin', 'BTC'] },
+    { symbol: 'XRP-USD', name: 'XRP', assetClass: 'crypto', aliases: ['XRP', 'Ripple'] },
+    { symbol: 'ETH-USD', name: 'Ethereum', assetClass: 'crypto', aliases: ['Ethereum', 'ETH'] },
+    { symbol: 'GC=F', name: 'Gold', assetClass: 'commodity', aliases: ['Gold', 'COMEX gold'] },
+    { symbol: 'SI=F', name: 'Silver', assetClass: 'commodity', aliases: ['Silver', 'COMEX silver'] },
+  ],
 
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
   // Set to null to use built-in defaults.

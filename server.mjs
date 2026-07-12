@@ -390,7 +390,7 @@ async function hotRefreshMarketWatchlist() {
       synthesized.intelAnalysisSource = currentData.intelAnalysisSource;
       synthesized.marketIntel = currentData.marketIntel || [];
     }
-    const wlCount = synthesized.markets?.watchlistCount || 0;
+    const wlCount = synthesized.markets?.marketIntelSymbolCount || 0;
     const newsCount = synthesized.marketNews?.items?.length || 0;
     if (!wlCount) {
       synthesized.marketIntelSource = 'no-watchlist';
@@ -675,7 +675,7 @@ async function runSweepCycle() {
         synthesized.marketIntel = [];
         synthesized.marketIntelSource = 'headlines-only';
       }
-    } else if (!synthesized.markets?.watchlistCount) {
+    } else if (!synthesized.markets?.marketIntelSymbolCount) {
       synthesized.marketIntel = [];
       synthesized.marketIntelSource = 'no-watchlist';
     } else if (!llmProvider?.isConfigured) {

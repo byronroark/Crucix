@@ -510,7 +510,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
       <div>
         <div class="glossary-kicker">Market Watchlist</div>
         <div class="glossary-title">Track stocks &amp; crypto</div>
-        <div class="glossary-sub">Add symbols for extra price tiles and symbol-scoped Market Intelligence news. Core macro tiles (indexes, BTC, etc.) stay fixed.</div>
+        <div class="glossary-sub">Add symbols for extra price tiles and symbol-scoped news. BTC, ETH, XRP, Gold, and Silver are always monitored in Market Intelligence below.</div>
       </div>
       <button class="glossary-close" onclick="closeMarketWatchlist()" aria-label="Close watchlist settings">&times;</button>
     </div>
@@ -1804,11 +1804,16 @@ function renderLower(){
       </div>
     </div>`;
 
-  const miSrc = D.marketIntelSource || 'no-watchlist';
+  const miSrc = D.marketIntelSource || 'headlines-only';
   const miItems = Array.isArray(D.marketIntel) ? D.marketIntel : [];
   const miNews = D.marketNews || {};
   const miBySymbol = miNews.bySymbol || {};
   const miSymbols = Object.keys(miBySymbol).filter(s => (miBySymbol[s] || []).length);
+  const miSymCount = mkt.marketIntelSymbolCount || (miNews.symbols || []).length || 0;
+  const miSymLabel = (sym) => {
+    const q = quotes[sym];
+    return q?.name || sym.replace(/-USD$/, '');
+  };
   const miBadge = miSrc === 'llm'
     ? '<span class="intel-src llm">AI ENHANCED</span>'
     : miSrc === 'headlines-only'
@@ -1831,21 +1836,15 @@ function renderLower(){
   }).join('') : '';
   const miHeadlines = miSymbols.length ? miSymbols.map(sym => {
     const rows = (miBySymbol[sym] || []).slice(0, 6).map(it => `<div class="market-news-row"><a href="${cleanText(it.url || '#')}" target="_blank" rel="noopener">${cleanText(String(it.title || ''))}</a><span class="market-news-meta">${cleanText(String(it.source || it.domain || ''))}</span></div>`).join('');
-    return `<div class="market-news-group"><div class="market-news-sym">${cleanText(sym)}</div>${rows}</div>`;
+    return `<div class="market-news-group"><div class="market-news-sym">${cleanText(miSymLabel(sym))}</div>${rows}</div>`;
   }).join('') : '';
-  const miEmpty = miSrc === 'no-watchlist'
-    ? `<div style="padding:16px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
-        <div style="font-size:22px;margin-bottom:8px;opacity:0.3">&#9673;</div>
-        <div>ADD SYMBOLS TO START</div>
-        <div style="font-size:9px;margin-top:6px;opacity:0.6">Use <button class="guide-btn" style="margin-top:6px" type="button" onclick="openMarketWatchlist()">+ Track</button> to watch stocks/crypto and pull symbol-specific news.</div>
-      </div>`
-    : `<div style="padding:16px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+  const miEmpty = `<div style="padding:16px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
         <div style="font-size:22px;margin-bottom:8px;opacity:0.3">&#8987;</div>
         <div>NO RECENT HEADLINES</div>
-        <div style="font-size:9px;margin-top:6px;opacity:0.6">No GDELT hits for tracked symbols this sweep.</div>
+        <div style="font-size:9px;margin-top:6px;opacity:0.6">No GDELT hits for BTC, ETH, XRP, Gold, Silver, or your + Track symbols this sweep. Use <button class="guide-btn" style="margin-top:6px" type="button" onclick="openMarketWatchlist()">+ Track</button> for more.</div>
       </div>`;
   const marketIntelPanel = `<div class="g-panel lp-market-intel">
-      <div class="sec-head"><h3>${t('panels.marketIntel','Market Intelligence')}</h3>${miBadge}${(mkt.watchlistCount||0) ? `<span class="badge">${mkt.watchlistCount} ${t('badges.symbols','SYMBOLS')}</span>` : ''}</div>
+      <div class="sec-head"><h3>${t('panels.marketIntel','Market Intelligence')}</h3>${miBadge}${miSymCount ? `<span class="badge">${miSymCount} ${t('badges.symbols','SYMBOLS')}</span>` : ''}</div>
       ${miIntelCards}${miHeadlines || (!miIntelCards ? miEmpty : '')}
     </div>`;
   const macroColumn = `<div class="lp-macro-col">${macroPanel}${marketIntelPanel}</div>`;

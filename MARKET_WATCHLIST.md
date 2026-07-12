@@ -10,6 +10,24 @@ Core macro tiles (S&P, BTC, WTI, Gold, etc.) stay fixed. News and extra fetches 
 
 ---
 
+## Default Market Intelligence symbols
+
+These are **always** monitored for news (no need to add via + Track):
+
+| Symbol | Name |
+|--------|------|
+| BTC-USD | Bitcoin |
+| XRP-USD | XRP |
+| ETH-USD | Ethereum |
+| GC=F | Gold |
+| SI=F | Silver |
+
+User-added symbols are merged on top. Duplicates of the defaults are rejected in + Track.
+
+Override the list in `crucix.config.mjs` → `marketIntelDefaults`.
+
+---
+
 ## Add symbols from the dashboard
 
 1. Open the dashboard → **Macro + Markets** panel → **+ Track**

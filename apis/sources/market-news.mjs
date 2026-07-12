@@ -1,7 +1,7 @@
-// Symbol-scoped market news via GDELT — only runs when user watchlist is non-empty.
+// Symbol-scoped market news via GDELT — defaults + user watchlist.
 
 import { searchEvents } from './gdelt.mjs';
-import { loadWatchlist } from '../../lib/config/market-watchlist-store.mjs';
+import { loadMarketIntelSymbols } from '../../lib/config/market-watchlist-store.mjs';
 import config from '../../crucix.config.mjs';
 
 const BATCH_SIZE = 5;
@@ -67,7 +67,7 @@ function assignSymbol(article, batch) {
 }
 
 export async function collect() {
-  const watchlist = loadWatchlist();
+  const watchlist = loadMarketIntelSymbols();
   if (!watchlist.length) {
     return { items: [], bySymbol: {}, symbols: [], timestamp: new Date().toISOString() };
   }

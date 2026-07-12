@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import config from '../crucix.config.mjs';
 import { loadMergedSources } from '../lib/config/custom-sources-store.mjs';
+import { loadMarketIntelSymbols } from '../lib/config/market-watchlist-store.mjs';
 import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
 import { geoTagText, RSS_SOURCE_FALLBACKS } from '../lib/geocode/keywords.mjs';
@@ -579,6 +580,7 @@ export async function synthesize(data) {
       assetClass: q.symbol.includes('-USD') ? 'crypto' : 'stock',
     })),
     watchlistCount: (yfData.watchlistSymbols || []).length,
+    marketIntelSymbolCount: loadMarketIntelSymbols().length,
     timestamp: yfData.summary?.timestamp || null,
   };
 
@@ -586,7 +588,7 @@ export async function synthesize(data) {
   const marketNews = {
     items: mnData.items || [],
     bySymbol: mnData.bySymbol || {},
-    symbols: mnData.symbols || [],
+    symbols: mnData.symbols?.length ? mnData.symbols : loadMarketIntelSymbols().map(s => s.symbol),
     timestamp: mnData.timestamp || null,
   };
 
