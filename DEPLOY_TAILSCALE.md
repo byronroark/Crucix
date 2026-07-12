@@ -124,7 +124,42 @@ sudo ufw allow from 192.168.0.0/16 to any port 3117 proto tcp comment 'Crucix LA
 
 Do **not** run `ufw allow 3117` for `any` — that exposes the dashboard to the world.
 
-### VPS (Linode, etc.)
+### Other Docker apps or host services on the same machine
+
+If the host runs **more than Crucix** — other `docker compose` stacks, standalone containers, or native daemons that publish ports — those ports are **not** covered by the `3117` rules above. Audit what is listening:
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+sudo ss -tlnp | grep LISTEN
+```
+
+For **each published host port** (the number before `->` in Docker, e.g. `0.0.0.0:8080->8080/tcp` means port **8080**):
+
+1. **Block the public internet** (same idea as Crucix).
+2. Decide who should reach it: **LAN only**, **Tailscale**, or **localhost** — not all three by default.
+
+**LAN only** (home Wi‑Fi, not Tailscale, not the internet) — typical for admin UIs you only use at home:
+
+```bash
+# Replace PORT with the host port (example: 8080)
+sudo ufw deny PORT/tcp comment 'Block public access'
+sudo ufw allow from 192.168.0.0/16 to any port PORT proto tcp comment 'LAN only'
+```
+
+- Reachable at home: `http://192.168.x.x:PORT`
+- **Not** on Tailscale unless you add a separate rule (see below)
+- Friends on your tailnet cannot hit it if you skip the tailnet rule
+- Do **not** port-forward that port on your router
+
+**Optional — same service over Tailscale** (only if you need remote access; anyone on your tailnet can use it):
+
+```bash
+sudo ufw allow from 100.64.0.0/10 to any port PORT proto tcp comment 'Via Tailscale'
+```
+
+Skip this if the service should stay LAN-only. Many homelab apps have weak or no auth — treat unexpected exposure like leaving an admin panel on the open internet.
+
+### VPS note
 
 Also close port 3117 in the **cloud provider firewall** if you use one. Only **22/tcp** (SSH) and Tailscale need to be reachable from the internet.
 
