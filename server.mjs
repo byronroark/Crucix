@@ -15,7 +15,7 @@ import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
 import { generateIntelAnalysis, hasIntelInput, harvestIntelItems } from './lib/llm/intel-analysis.mjs';
-import { collect as collectCustomFeeds, testRssFeed } from './apis/sources/custom-feeds.mjs';
+import { collect as collectCustomFeeds, testRssFeed, testCustomSource } from './apis/sources/custom-feeds.mjs';
 import {
   listSources,
   addSource,
@@ -369,10 +369,14 @@ app.get('/api/config/sources', (req, res) => {
 });
 
 app.post('/api/config/sources/test', requireAdmin, async (req, res) => {
-  const url = req.body?.url;
+  const body = req.body || {};
+  const url = body.url;
   if (!url) return res.status(400).json({ error: 'url is required' });
   try {
-    const samples = await testRssFeed(url);
+    const type = body.type || 'rss';
+    const samples = type === 'rss'
+      ? await testRssFeed(url)
+      : await testCustomSource(body);
     res.json({ ok: true, samples });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });

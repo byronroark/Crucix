@@ -18,6 +18,7 @@ import { fileURLToPath } from 'url';
 import { safeFetch } from '../utils/fetch.mjs';
 import config from '../../crucix.config.mjs';
 import { loadMergedSources } from '../../lib/config/custom-sources-store.mjs';
+import { appendCustomHistory } from '../../lib/custom/history.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
@@ -91,6 +92,8 @@ export async function collect(opts = {}) {
     }
   }
 
+  appendCustomHistory([...itemsTicker, ...itemsAnalyzed]);
+
   return {
     source: 'CustomFeeds',
     timestamp: new Date().toISOString(),
@@ -154,6 +157,14 @@ export async function testRssFeed(url) {
   const src = normalizeSource({ type: 'rss', name: 'Test Feed', url, tier: 'ticker' });
   if (src?._invalid) throw new Error(src._invalid);
   const items = await fetchRSS(src);
+  return items.slice(0, 5).map(it => ({ title: it.title, timestamp: it.timestamp }));
+}
+
+/** Test any custom source type without persisting. */
+export async function testCustomSource(raw) {
+  const src = normalizeSource({ tier: 'ticker', refreshMinutes: 30, ...raw, name: raw.name || 'Test Source' });
+  if (src?._invalid) throw new Error(src._invalid);
+  const items = await fetchSource(src);
   return items.slice(0, 5).map(it => ({ title: it.title, timestamp: it.timestamp }));
 }
 

@@ -606,13 +606,15 @@ For bugs and feature requests, please use GitHub Issues so discussion stays visi
 
 Tracked here so they do not get lost. None are upstream concerns — these are planned enhancements for this fork.
 
-### Custom OSINT Sources — deferred from the v1 design
+### Custom OSINT Sources — follow-ups
 
-The pluggable custom-source system (`CUSTOM_SOURCES.md`) shipped with three follow-ups intentionally cut from scope:
+The pluggable custom-source system (`CUSTOM_SOURCES.md`) shipped with these enhancements:
 
-- **Delta-engine integration for custom signals.** Today the delta engine in `lib/delta/engine.mjs` only tracks the built-in metrics. A future pass would let `tier: 'analyzed'` items influence the sweep delta (e.g. "new HIGH-confidence intel item with tag `nuclear`" triggers a PRIORITY Telegram alert via `lib/alerts/telegram.mjs`). Requires a new threshold block in `crucix.config.mjs` and a new signal type in the delta engine.
+- ~~**Delta-engine integration for custom signals.**~~ **Done.** New `tier: 'analyzed'` items appear in sweep delta; tag matches (`customSignals.priorityTags` in config) elevate to high-severity signals for Telegram/Discord alerts.
 - ~~**Globe markers for custom items with geo coords.**~~ **Done.** Custom items now render as a distinct purple "Custom OSINT" layer on the globe + flat map via `lib/geocode/` — explicit per-item or source-level `lat`/`lon`, headline keywords, region centers, then optional Google Geocoding API (free Nominatim fallback). See [CUSTOM_SOURCES.md](CUSTOM_SOURCES.md#globe-markers-custom-osint-layer).
-- **Historical retention for custom items.** Custom items live in `runs/latest.json` only — the next sweep overwrites them. The memory engine (`lib/delta/index.mjs`) does retain delta history but not raw OSINT bodies. A future pass would add an opt-in append-only log per source under `runs/memory/custom/` so trends can be reasoned about over weeks.
+- ~~**Historical retention for custom items.**~~ **Done.** Append-only JSONL logs per source under `runs/memory/custom/` (disable with `CUSTOM_SOURCES_HISTORY=0`).
+- ~~**Multi-source Intelligence Analysis + Sources UI.**~~ **Done.** Built-in OSINT pools + dashboard Sources modal for RSS / Firecrawl / HTTP-JSON.
+- **Per-source health card on the dashboard.** Add a small status grid to the dashboard for custom sources, mirroring the existing source health badges, so you can see "X has not returned items for N sweeps" without tailing logs.
 
 ### Other planned items
 

@@ -422,8 +422,8 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
     <div class="glossary-head">
       <div>
         <div class="glossary-kicker">OSINT Sources</div>
-        <div class="glossary-title">Manage RSS feeds</div>
-        <div class="glossary-sub">Add global or regional RSS feeds to the news ticker or Intelligence Analysis pool. Built-in Florida feeds are read-only.</div>
+        <div class="glossary-title">Manage OSINT sources</div>
+        <div class="glossary-sub">Add RSS, Firecrawl scrapes, or HTTP-JSON endpoints to the news ticker or Intelligence Analysis pool. Built-in Florida feeds are read-only.</div>
       </div>
       <button class="glossary-close" onclick="closeSourcesSettings()" aria-label="Close sources settings">&times;</button>
     </div>
@@ -433,8 +433,22 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
         <input type="password" id="srcAdminToken" placeholder="Paste ADMIN_TOKEN from .env" onchange="saveAdminToken()">
       </div>
       <input type="hidden" id="srcEditId" value="">
+      <div class="sources-field"><label>Type</label>
+        <select id="srcType" onchange="toggleSourceTypeFields()">
+          <option value="rss">RSS feed</option>
+          <option value="firecrawl">Firecrawl scrape</option>
+          <option value="http-json">HTTP JSON API</option>
+        </select>
+      </div>
       <div class="sources-field"><label>Name</label><input id="srcName" placeholder="e.g. BBC World News"></div>
-      <div class="sources-field"><label>RSS URL</label><input id="srcUrl" placeholder="https://example.com/feed.xml"></div>
+      <div class="sources-field"><label id="srcUrlLabel">Feed URL</label><input id="srcUrl" placeholder="https://example.com/feed.xml"></div>
+      <div id="srcJsonFields" style="display:none">
+        <div class="sources-field"><label>Items path (dot notation, optional)</label><input id="srcItemsPath" placeholder="data.articles"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="sources-field"><label>Title field</label><input id="srcTitleField" value="title"></div>
+          <div class="sources-field"><label>URL field</label><input id="srcUrlField" value="url"></div>
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div class="sources-field"><label>Tier</label>
           <select id="srcTier"><option value="ticker">Ticker (news scroll)</option><option value="analyzed">Analyzed (Intel pool)</option></select>
@@ -1573,7 +1587,25 @@ function renderLower(){
   const localDuration = Math.max(20, localFeed.length * 2.5);
 
   // Leverageable Ideas (LLM-only feature)
+  const ideasSrc = D.ideasSource || 'disabled';
   const hasIdeas = D.ideas && D.ideas.length > 0;
+  const ideasEmpty = ideasSrc === 'disabled'
+    ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+        <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#9888;</div>
+        <div>LLM NOT CONFIGURED</div>
+        <div style="font-size:9px;margin-top:6px;opacity:0.6">Set LLM_PROVIDER + credentials in .env to enable AI-powered trade ideas</div>
+      </div>`
+    : ideasSrc === 'llm-failed'
+      ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+          <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#8987;</div>
+          <div>GENERATION FAILED</div>
+          <div style="font-size:9px;margin-top:6px;opacity:0.6">LLM responded but output could not be parsed. Retrying next sweep.</div>
+        </div>`
+      : `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+          <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#8987;</div>
+          <div>NO IDEAS YET</div>
+          <div style="font-size:9px;margin-top:6px;opacity:0.6">${ideasSrc === 'pending' ? 'Waiting for next sweep.' : 'Waiting for LLM generation.'}</div>
+        </div>`;
   const ideasHtml = hasIdeas ? (D.ideas||[]).map(idea=>`
     <div class="idea-card">
       <span class="idea-type ${(idea.type||'').toLowerCase()}">${(idea.type||'').toUpperCase()}</span>
@@ -1583,11 +1615,7 @@ function renderLower(){
       <div class="idea-title">${idea.title}</div>
       <div class="idea-text">${idea.text||idea.rationale||''}</div>
       ${idea.risk ? `<div class="idea-text" style="color:var(--warn);margin-top:3px">Risk: ${idea.risk}</div>` : ''}
-    </div>`).join('') : `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
-      <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#9888;</div>
-      <div>LLM NOT CONFIGURED</div>
-      <div style="font-size:9px;margin-top:6px;opacity:0.6">Set LLM_PROVIDER + credentials in .env to enable AI-powered trade ideas</div>
-    </div>`;
+    </div>`).join('') : ideasEmpty;
 
 
   const tickerPanel = `<div class="g-panel lp-ticker" style="display:flex;flex-direction:column">
@@ -1627,7 +1655,7 @@ function renderLower(){
       </div>
     </div>`;
   const ideasPanel = `<div class="g-panel lp-ideas">
-      <div class="sec-head"><h3>${t('panels.tradeIdeas','Leverageable Ideas')}</h3>${D.ideasSource==='llm'?'<span class="ideas-src llm">'+t('ideas.aiEnhanced','AI ENHANCED')+'</span>':D.ideasSource==='disabled'?'<span class="ideas-src static">'+t('ideas.llmOff','LLM OFF')+'</span>':'<span class="ideas-src static">'+t('ideas.pending','PENDING')+'</span>'}</div>
+      <div class="sec-head"><h3>${t('panels.tradeIdeas','Leverageable Ideas')}</h3>${ideasSrc==='llm'?'<span class="ideas-src llm">'+t('ideas.aiEnhanced','AI ENHANCED')+'</span>':ideasSrc==='disabled'?'<span class="ideas-src static">'+t('ideas.llmOff','LLM OFF')+'</span>':ideasSrc==='llm-failed'?'<span class="ideas-src static">RETRY NEXT SWEEP</span>':'<span class="ideas-src static">'+t('ideas.pending','PENDING')+'</span>'}</div>
       ${ideasHtml}
       <div class="disclosure">FOR INFORMATIONAL PURPOSES ONLY. This is not financial advice, a recommendation to buy or sell any security, or a solicitation of any kind. All signal-based observations are derived from publicly available OSINT data and should not be relied upon for investment decisions. Consult a licensed financial advisor before making any investment. Past performance does not guarantee future results.</div>
     </div>`;
@@ -1877,13 +1905,54 @@ function showSourcesToast(msg) {
   setTimeout(() => t.classList.remove('show'), 3200);
 }
 
+function toggleSourceTypeFields() {
+  const type = document.getElementById('srcType')?.value || 'rss';
+  const jsonFields = document.getElementById('srcJsonFields');
+  const urlLabel = document.getElementById('srcUrlLabel');
+  if (jsonFields) jsonFields.style.display = type === 'http-json' ? 'block' : 'none';
+  if (urlLabel) {
+    urlLabel.textContent = type === 'rss' ? 'Feed URL' : type === 'firecrawl' ? 'Page URL' : 'API URL';
+  }
+  const urlInput = document.getElementById('srcUrl');
+  if (urlInput) {
+    urlInput.placeholder = type === 'rss' ? 'https://example.com/feed.xml'
+      : type === 'firecrawl' ? 'https://example.com/news'
+      : 'https://api.example.com/items';
+  }
+}
+
+function sourceFormPayload() {
+  const type = document.getElementById('srcType').value || 'rss';
+  const payload = {
+    type,
+    name: document.getElementById('srcName').value.trim(),
+    url: document.getElementById('srcUrl').value.trim(),
+    tier: document.getElementById('srcTier').value,
+    region: document.getElementById('srcRegion').value.trim() || 'Global',
+    tags: document.getElementById('srcTags').value.trim(),
+  };
+  if (type === 'http-json') {
+    payload.json = {
+      itemsPath: document.getElementById('srcItemsPath').value.trim(),
+      titleField: document.getElementById('srcTitleField').value.trim() || 'title',
+      urlField: document.getElementById('srcUrlField').value.trim() || 'url',
+    };
+  }
+  return payload;
+}
+
 function resetSourceForm() {
   document.getElementById('srcEditId').value = '';
+  document.getElementById('srcType').value = 'rss';
   document.getElementById('srcName').value = '';
   document.getElementById('srcUrl').value = '';
   document.getElementById('srcTier').value = 'ticker';
   document.getElementById('srcRegion').value = 'Global';
   document.getElementById('srcTags').value = '';
+  document.getElementById('srcItemsPath').value = '';
+  document.getElementById('srcTitleField').value = 'title';
+  document.getElementById('srcUrlField').value = 'url';
+  toggleSourceTypeFields();
   const out = document.getElementById('srcTestOut');
   if (out) { out.style.display = 'none'; out.innerHTML = ''; }
 }
@@ -1895,6 +1964,7 @@ function openSourcesSettings() {
   document.body.style.overflow = 'hidden';
   const saved = getAdminToken();
   if (saved) document.getElementById('srcAdminToken').value = saved;
+  toggleSourceTypeFields();
   loadSourcesList();
 }
 
@@ -1930,6 +2000,7 @@ async function loadSourcesList() {
         <div class="source-card-head"><div class="source-card-title">${cleanText(s.name)}</div></div>
         <div class="source-card-url">${cleanText(s.url || '')}</div>
         <div class="source-card-meta">
+          <span class="source-tag">${cleanText(String(s.type || 'rss').toUpperCase())}</span>
           <span class="source-tag">${tier}</span>
           <span class="source-tag">${cleanText(s.region || 'Global')}</span>
           ${builtIn}${err}
@@ -1946,26 +2017,31 @@ function editSource(id) {
     const s = (data.sources || []).find(x => x.id === id);
     if (!s) return;
     document.getElementById('srcEditId').value = s.id;
+    document.getElementById('srcType').value = s.type || 'rss';
     document.getElementById('srcName').value = s.name || '';
     document.getElementById('srcUrl').value = s.url || '';
     document.getElementById('srcTier').value = s.tier || 'ticker';
     document.getElementById('srcRegion').value = s.region || 'Global';
     document.getElementById('srcTags').value = Array.isArray(s.tags) ? s.tags.join(', ') : '';
+    document.getElementById('srcItemsPath').value = s.json?.itemsPath || '';
+    document.getElementById('srcTitleField').value = s.json?.titleField || 'title';
+    document.getElementById('srcUrlField').value = s.json?.urlField || 'url';
+    toggleSourceTypeFields();
     document.getElementById('sourcesForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
 
 async function testSourceFeed() {
-  const url = document.getElementById('srcUrl').value.trim();
+  const payload = sourceFormPayload();
   const out = document.getElementById('srcTestOut');
-  if (!url) { showSourcesToast('Enter an RSS URL first'); return; }
+  if (!payload.url) { showSourcesToast('Enter a URL first'); return; }
   out.style.display = 'block';
-  out.textContent = 'Testing feed…';
+  out.textContent = 'Testing source…';
   try {
     const res = await fetch('/api/config/sources/test', {
       method: 'POST',
       headers: sourcesHeaders(),
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Test failed');
@@ -1981,13 +2057,7 @@ async function testSourceFeed() {
 
 async function saveSourceFeed() {
   const id = document.getElementById('srcEditId').value.trim();
-  const payload = {
-    name: document.getElementById('srcName').value.trim(),
-    url: document.getElementById('srcUrl').value.trim(),
-    tier: document.getElementById('srcTier').value,
-    region: document.getElementById('srcRegion').value.trim() || 'Global',
-    tags: document.getElementById('srcTags').value.trim(),
-  };
+  const payload = sourceFormPayload();
   if (!payload.name || !payload.url) { showSourcesToast('Name and URL are required'); return; }
   saveAdminToken();
   const method = id ? 'PUT' : 'POST';

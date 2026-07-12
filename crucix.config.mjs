@@ -48,6 +48,10 @@ export default {
   // See CUSTOM_SOURCES.md for full schema and examples.
   // User-added sources via the dashboard UI are stored separately at customSourcesUserFile.
   customSourcesUserFile: process.env.CUSTOM_SOURCES_USER_FILE || 'runs/config/custom-sources.json',
+  // Append-only history for custom source items (disable with CUSTOM_SOURCES_HISTORY=0)
+  customSourcesHistory: process.env.CUSTOM_SOURCES_HISTORY !== '0',
+  customSourcesHistoryDir: process.env.CUSTOM_SOURCES_HISTORY_DIR || 'runs/memory/custom',
+  customSourcesHistoryMaxPerSource: parseInt(process.env.CUSTOM_SOURCES_HISTORY_MAX) || 500,
 
   customSources: [
     // --- RSS feeds ---
@@ -164,7 +168,19 @@ export default {
       adsb: 3,
       customAnalyzed: 4,
       defense: 3,
+      fred: 4,
+      bls: 3,
+      markets: 3,
     },
+  },
+
+  // Custom analyzed OSINT — delta + alert integration
+  customSignals: {
+    enabled: true,
+    // Tags that elevate a new analyzed item to a priority delta signal
+    priorityTags: ['nuclear', 'cyber', 'sanctions', 'conflict', 'war', 'missile', 'coup'],
+    // Minimum tag matches for priority (1 = any listed tag)
+    minTagMatches: 1,
   },
 
   // Dashboard admin token — required for POST/PUT/DELETE on /api/config/sources when set
