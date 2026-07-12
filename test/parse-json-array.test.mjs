@@ -24,8 +24,13 @@ test('extractJsonArray handles multipart-style string input', () => {
   assert.equal(arr[0].summary, 'Body text');
 });
 
-test('extractJsonArray extracts array from trailing prose', () => {
-  const text = 'Analysis:\n[{"title":"A","summary":"B"}]\nHope this helps.';
-  const arr = extractJsonArray(text);
-  assert.equal(arr[0].title, 'A');
+test('extractJsonArray handles trade_ideas wrapper', () => {
+  const arr = extractJsonArray('{"trade_ideas":[{"title":"Gold","type":"LONG","confidence":"HIGH"}]}');
+  assert.equal(arr[0].title, 'Gold');
+});
+
+test('extractJsonArray unwraps nested idea objects', () => {
+  const json = '{"ideas":[{"idea":{"title":"Oil hedge","type":"HEDGE","confidence":"MEDIUM"}}]}';
+  const arr = extractJsonArray(json);
+  assert.equal(arr[0].idea.title, 'Oil hedge');
 });

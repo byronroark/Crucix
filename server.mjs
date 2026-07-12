@@ -114,7 +114,7 @@ function buildBriefBody({ flavor = 'telegram', title } = {}) {
   return sections.join('\n');
 }
 
-if (llmProvider) console.log(`[Crucix] LLM enabled: ${llmProvider.name} (${llmProvider.model})`);
+if (llmProvider) console.log(`[Crucix] LLM enabled: ${llmProvider.name} (model: ${llmProvider.model})`);
 if (telegramAlerter.isConfigured) {
   console.log('[Crucix] Telegram alerts enabled');
 
@@ -431,6 +431,7 @@ app.get('/api/health', (req, res) => {
     sourcesFailed: currentData?.meta?.sourcesFailed || 0,
     llmEnabled: !!config.llm.provider,
     llmProvider: config.llm.provider,
+    llmModel: llmProvider?.model || config.llm.model || null,
     telegramEnabled: !!(config.telegram.botToken && config.telegram.chatId),
     refreshIntervalMinutes: config.refreshIntervalMinutes,
     language: currentLanguage,
