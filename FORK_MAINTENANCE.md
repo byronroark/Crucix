@@ -170,11 +170,16 @@ These are the files this fork currently modifies. If upstream changes the same a
 
 | File                           | What this fork changed                                                      |
 | ------------------------------ | --------------------------------------------------------------------------- |
+| `crucix.config.mjs`            | Custom OSINT sources, intel analysis, Florida feeds, Telegram daily brief, `customSignals`, `adminToken`. Upstream often adds top-level config keys (e.g. `publicUrl`). |
+| `server.mjs`                   | Custom Sources API, intel analysis sweep step, ACLED warmup, daily brief scheduler, shared `buildBriefBody`. Upstream often adds Discord/Telegram status tweaks and new sweep hooks. |
+| `lib/llm/ideas.mjs`            | Shared `parse-json-array.mjs` parser, `normalizeIdea`, OpenRouter-oriented prompts. Upstream may touch token limits and inline JSON parsing — keep fork parser, take upstream `maxTokens` bumps. |
+| `dashboard/inject.mjs`         | Custom feeds, Florida ticker split, intel analysis injection, `quotes: yfQuotes`. |
+| `dashboard/public/jarvis.html` | Intel Analysis panel, Sources settings UI, XRP/crypto tiles, LLM empty states. |
 | `apis/sources/yfinance.mjs`    | Added `XRP-USD` to the `SYMBOLS` map and to the `crypto` group.             |
-| `dashboard/inject.mjs`         | Added `quotes: yfQuotes` to the synthesized `markets` object.               |
-| `dashboard/public/jarvis.html` | Added `XRP` to the `isCrypto` check; fixed the `/api/data` bootstrap logic. |
 
 When resolving conflicts in these files, the rule of thumb is: **keep upstream's new structure, then re-apply your additions on top.** For example, if upstream added new crypto symbols to `yfinance.mjs`, take their changes and make sure `'XRP-USD'` is still present.
+
+**Last upstream sync preview (2026-07):** 7 commits behind, only `lib/llm/ideas.mjs` had a manual conflict. `apis/utils/env.mjs`, `lib/alerts/discord.mjs`, `lib/llm/gemini.mjs`, `crucix.config.mjs`, and `server.mjs` auto-merged.
 
 ---
 
