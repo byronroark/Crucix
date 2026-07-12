@@ -4,7 +4,7 @@
 // Usage:
 //   npm run test:acled
 //   npm run test:acled -- --debug
-//   npm run test:acled -- --fresh   # clear token cache, re-auth from .env
+//   npm run test:acled -- --fresh   # clear token cache (run host-refresh AFTER, not before)
 
 import { existsSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
@@ -26,6 +26,7 @@ const CACHE_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'runs', '
 if (fresh && existsSync(CACHE_FILE)) {
   unlinkSync(CACHE_FILE);
   console.log(`[test-acled] --fresh: removed ${CACHE_FILE}`);
+  console.log('[test-acled] Re-run: node scripts/acled-host-refresh.mjs --password');
 }
 
 const hasToken = Boolean(process.env.ACLED_ACCESS_TOKEN?.trim());

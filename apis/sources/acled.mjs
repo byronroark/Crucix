@@ -244,6 +244,10 @@ async function acledRequestCycleTLS(url, {
   const text = typeof response?.body === 'string'
     ? response.body
     : (response?.body ? String(response.body) : '');
+  if (!text && curlAvailable) {
+    debugLog('cycletls returned empty body — retrying via curl');
+    return acledRequestCurl(url, opts);
+  }
   return { status, body: text, setCookies: [], transport: 'cycletls' };
 }
 
@@ -253,6 +257,13 @@ async function acledRequest(url, opts = {}) {
     ? buildAcledHeaders(opts.headers)
     : buildAcledPostHeaders(opts.headers);
   const mergedOpts = { ...opts, headers };
+
+  // OAuth/login POST via cycletls returns empty bodies in Docker — curl works (see host-refresh)
+  const isAuthEndpoint = url === TOKEN_URL || url === LOGIN_URL;
+  if (isAuthEndpoint && curlAvailable) {
+    debugLog(`HTTP ${mergedOpts.method || 'GET'} via curl (auth endpoint)`);
+    return acledRequestCurl(url, mergedOpts);
+  }
 
   if (shouldUseCycleTls()) {
     await ensureCycleTls();
