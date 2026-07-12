@@ -22,7 +22,8 @@ import {
   updateSymbol,
   deleteSymbol,
 } from './lib/config/market-watchlist-store.mjs';
-import { testSymbol } from './apis/sources/yfinance.mjs';
+import { testSymbol, collect as collectYFinance } from './apis/sources/yfinance.mjs';
+import { collect as collectMarketNews } from './apis/sources/market-news.mjs';
 import { collect as collectCustomFeeds, testRssFeed, testCustomSource } from './apis/sources/custom-feeds.mjs';
 import {
   listSources,
@@ -373,6 +374,42 @@ async function hotRefreshCustomSources() {
   }
 }
 
+async function hotRefreshMarketWatchlist() {
+  const latestPath = join(RUNS_DIR, 'latest.json');
+  if (!existsSync(latestPath) || sweepInProgress) return false;
+  try {
+    const raw = JSON.parse(readFileSync(latestPath, 'utf8'));
+    raw.sources.YFinance = await collectYFinance();
+    raw.sources.MarketNews = await collectMarketNews();
+    const synthesized = await synthesize(raw);
+    if (currentData) {
+      synthesized.delta = currentData.delta;
+      synthesized.ideas = currentData.ideas || [];
+      synthesized.ideasSource = currentData.ideasSource;
+      synthesized.intelAnalysis = currentData.intelAnalysis || [];
+      synthesized.intelAnalysisSource = currentData.intelAnalysisSource;
+      synthesized.marketIntel = currentData.marketIntel || [];
+    }
+    const wlCount = synthesized.markets?.watchlistCount || 0;
+    const newsCount = synthesized.marketNews?.items?.length || 0;
+    if (!wlCount) {
+      synthesized.marketIntelSource = 'no-watchlist';
+      synthesized.marketIntel = [];
+    } else if (newsCount) {
+      synthesized.marketIntelSource = synthesized.marketIntel?.length ? 'llm' : 'headlines-only';
+    } else {
+      synthesized.marketIntelSource = 'headlines-only';
+      synthesized.marketIntel = [];
+    }
+    currentData = synthesized;
+    broadcast({ type: 'update', data: currentData });
+    return true;
+  } catch (err) {
+    console.error('[Crucix] Hot refresh after watchlist change failed:', err.message);
+    return false;
+  }
+}
+
 app.get('/api/config/sources', (req, res) => {
   const cf = currentData?.health ? feedStatusFromData() : {};
   res.json({ sources: listSources(cf), adminRequired: Boolean(config.adminToken) });
@@ -426,6 +463,11 @@ app.get('/api/config/market-watchlist', (req, res) => {
   res.json({ symbols: listWatchlist(), adminRequired: Boolean(config.adminToken) });
 });
 
+app.post('/api/config/market-watchlist/refresh', async (req, res) => {
+  const refreshed = await hotRefreshMarketWatchlist();
+  res.json({ refreshed });
+});
+
 app.post('/api/config/market-watchlist/test', requireAdmin, async (req, res) => {
   const body = req.body || {};
   if (!body.symbol) return res.status(400).json({ error: 'symbol is required' });
@@ -439,21 +481,39 @@ app.post('/api/config/market-watchlist/test', requireAdmin, async (req, res) => 
 });
 
 app.post('/api/config/market-watchlist', requireAdmin, async (req, res) => {
-  const result = addSymbol(req.body || {});
-  if (!result.ok) return res.status(400).json(result);
-  res.json(result);
+  try {
+    const result = addSymbol(req.body || {});
+    if (!result.ok) return res.status(400).json(result);
+    const refreshed = await hotRefreshMarketWatchlist();
+    res.json({ ...result, refreshed });
+  } catch (err) {
+    console.error('[Crucix] Watchlist add failed:', err.message);
+    res.status(500).json({ ok: false, errors: [err.message] });
+  }
 });
 
 app.put('/api/config/market-watchlist/:id', requireAdmin, async (req, res) => {
-  const result = updateSymbol(req.params.id, req.body || {});
-  if (!result.ok) return res.status(result.errors?.[0] === 'symbol not found' ? 404 : 400).json(result);
-  res.json(result);
+  try {
+    const result = updateSymbol(req.params.id, req.body || {});
+    if (!result.ok) return res.status(result.errors?.[0] === 'symbol not found' ? 404 : 400).json(result);
+    const refreshed = await hotRefreshMarketWatchlist();
+    res.json({ ...result, refreshed });
+  } catch (err) {
+    console.error('[Crucix] Watchlist update failed:', err.message);
+    res.status(500).json({ ok: false, errors: [err.message] });
+  }
 });
 
 app.delete('/api/config/market-watchlist/:id', requireAdmin, async (req, res) => {
-  const result = deleteSymbol(req.params.id);
-  if (!result.ok) return res.status(404).json(result);
-  res.json(result);
+  try {
+    const result = deleteSymbol(req.params.id);
+    if (!result.ok) return res.status(404).json(result);
+    const refreshed = await hotRefreshMarketWatchlist();
+    res.json({ ...result, refreshed });
+  } catch (err) {
+    console.error('[Crucix] Watchlist delete failed:', err.message);
+    res.status(500).json({ ok: false, errors: [err.message] });
+  }
 });
 
 // API: current data

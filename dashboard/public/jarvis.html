@@ -197,9 +197,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .lower .lp-ticker-col{flex:1.2 1 240px;max-width:380px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .lower .lp-ticker-col .lp-ticker,.lower .lp-ticker-col .lp-local-ticker{flex:0 1 auto;max-width:none}
 .right-delta .delta-list{max-height:200px}
-.lower .lp-macro{flex:2.5 1 360px}
-.lower .lp-macro-col{flex:2.5 1 360px;display:flex;flex-direction:column;gap:10px}
-.lower .lp-market-intel{flex:none;width:100%}
+.lower .lp-macro{flex:2.5 1 360px;overflow:visible;padding-bottom:6px}
+.lower .lp-macro-col{flex:2.5 1 360px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.lower .lp-macro-col > .g-panel{overflow:visible}
+.lower .lp-market-intel{flex:none;width:100%;overflow:visible}
 .lower .lp-ideas{flex:1.5 1 300px}
 .lower .lp-intel{flex:1.5 1 300px}
 .lower-wide{width:100%}
@@ -529,7 +530,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
       <div class="sources-field"><label>News aliases (comma-separated, optional)</label><input id="wlAliases" placeholder="Apple, Apple Inc"></div>
       <div class="sources-actions">
         <button class="sources-btn" type="button" onclick="testWatchlistSymbol()">Test symbol</button>
-        <button class="sources-btn primary" type="button" onclick="saveWatchlistSymbol()">Save</button>
+        <button class="sources-btn primary" type="button" id="wlSaveBtn" onclick="saveWatchlistSymbol()">Add symbol</button>
         <button class="sources-btn" type="button" onclick="resetWatchlistForm()">Clear</button>
       </div>
       <div class="sources-test-out" id="wlTestOut" style="display:none"></div>
@@ -2325,8 +2326,44 @@ function resetWatchlistForm() {
   document.getElementById('wlName').value = '';
   document.getElementById('wlAssetClass').value = 'stock';
   document.getElementById('wlAliases').value = '';
+  const saveBtn = document.getElementById('wlSaveBtn');
+  if (saveBtn) saveBtn.textContent = 'Add symbol';
   const out = document.getElementById('wlTestOut');
   if (out) { out.style.display = 'none'; out.innerHTML = ''; }
+}
+
+function syncWatchlistAdminToken() {
+  const src = document.getElementById('srcAdminToken');
+  const wl = document.getElementById('wlAdminToken');
+  const saved = getAdminToken();
+  if (wl && saved && !wl.value) wl.value = saved;
+  if (wl && !wl.value && src?.value) wl.value = src.value.trim();
+}
+
+async function refreshDashboardData() {
+  try {
+    const res = await fetch('/api/data');
+    if (!res.ok) return;
+    D = await res.json();
+    reinit();
+  } catch (_) { /* non-fatal */ }
+}
+
+async function ensureWatchlistSynced() {
+  if (location.protocol === 'file:') return;
+  try {
+    const wl = await fetch('/api/config/market-watchlist').then(r => r.json());
+    const savedCount = (wl.symbols || []).length;
+    if (!savedCount) return;
+    const loadedCount = D.markets?.watchlistCount || 0;
+    const trackedCount = (D.markets?.tracked || []).length;
+    if (loadedCount >= savedCount && trackedCount > 0) return;
+    const res = await fetch('/api/config/market-watchlist/refresh', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.refreshed) await refreshDashboardData();
+  } catch (e) {
+    console.warn('[Crucix] Watchlist sync:', e.message);
+  }
 }
 
 function openMarketWatchlist() {
@@ -2334,8 +2371,8 @@ function openMarketWatchlist() {
   if (!overlay) return;
   overlay.classList.add('show');
   document.body.style.overflow = 'hidden';
-  const saved = getAdminToken();
-  if (saved) document.getElementById('wlAdminToken').value = saved;
+  syncWatchlistAdminToken();
+  saveWatchlistAdminToken();
   loadWatchlistPanel();
 }
 
@@ -2387,6 +2424,8 @@ function editWatchlistSymbol(id) {
     document.getElementById('wlName').value = s.name || '';
     document.getElementById('wlAssetClass').value = s.assetClass || 'stock';
     document.getElementById('wlAliases').value = Array.isArray(s.aliases) ? s.aliases.join(', ') : '';
+    const saveBtn = document.getElementById('wlSaveBtn');
+    if (saveBtn) saveBtn.textContent = 'Save changes';
     document.getElementById('watchlistForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
@@ -2415,19 +2454,28 @@ async function testWatchlistSymbol() {
 
 async function saveWatchlistSymbol() {
   const payload = watchlistFormPayload();
+  if (!payload.symbol) { showWatchlistToast('Enter a symbol first'); return; }
   const editId = document.getElementById('wlEditId').value.trim();
   saveWatchlistAdminToken();
+  if (watchlistAdminRequired && !getAdminToken() && !document.getElementById('wlAdminToken')?.value?.trim()) {
+    showWatchlistToast('Admin token required — paste ADMIN_TOKEN from .env');
+    document.getElementById('wlAdminTokenField').style.display = 'block';
+    return;
+  }
   try {
     const res = await fetch(editId ? `/api/config/market-watchlist/${encodeURIComponent(editId)}` : '/api/config/market-watchlist', {
       method: editId ? 'PUT' : 'POST',
       headers: watchlistHeaders(),
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error((data.errors && data.errors[0]) || data.error || 'Save failed');
-    showWatchlistToast(editId ? 'Updated' : 'Added');
+    let data;
+    try { data = await res.json(); } catch { data = {}; }
+    if (!res.ok) throw new Error((data.errors && data.errors[0]) || data.error || `Save failed (${res.status})`);
+    showWatchlistToast(editId ? 'Updated — refreshing dashboard' : 'Added — refreshing dashboard');
     resetWatchlistForm();
     loadWatchlistPanel();
+    if (data.refreshed) await refreshDashboardData();
+    else showWatchlistToast('Saved — tiles update on next sweep (~15 min)');
   } catch (e) {
     showWatchlistToast(e.message);
   }
@@ -2443,9 +2491,10 @@ async function deleteWatchlistSymbol(id) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error((data.errors && data.errors[0]) || data.error || 'Delete failed');
-    showWatchlistToast('Removed');
+    showWatchlistToast('Removed — refreshing dashboard');
     resetWatchlistForm();
     loadWatchlistPanel();
+    if (data.refreshed) await refreshDashboardData();
   } catch (e) {
     showWatchlistToast(e.message);
   }
@@ -2573,7 +2622,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!r.ok) throw new Error('api/data ' + r.status);
         return r.json();
       })
-      .then(data => { D = data; init(); connectSSE(); })
+      .then(data => { D = data; init(); connectSSE(); ensureWatchlistSynced(); })
       .catch(err => {
         console.warn('[Crucix] /api/data fetch failed, falling back to inline snapshot:', err);
         if (hasInlineData) { init(); connectSSE(); }
