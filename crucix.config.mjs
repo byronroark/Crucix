@@ -187,6 +187,17 @@ export default {
   // Dashboard admin token — required for POST/PUT/DELETE on /api/config/sources when set
   adminToken: process.env.ADMIN_TOKEN || null,
 
+  // User-managed stock/crypto watchlist — extra price tiles + Market Intelligence news
+  marketWatchlistUserFile: process.env.MARKET_WATCHLIST_USER_FILE || 'runs/config/market-watchlist.json',
+
+  marketIntel: {
+    enabled: true,
+    maxHeadlinesPerSymbol: 8,
+    maxHeadlinesTotal: 40,
+    maxInputChars: 6000,
+    gdeltTimespan: '48h',
+  },
+
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
   // Set to null to use built-in defaults.
   //

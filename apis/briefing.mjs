@@ -42,6 +42,7 @@ import { briefing as space } from './sources/space.mjs';
 
 // === Tier 5: Live Market Data ===
 import { briefing as yfinance } from './sources/yfinance.mjs';
+import { briefing as marketNews } from './sources/market-news.mjs';
 
 // === Tier 5b: User-Defined Custom Sources ===
 import { briefing as customFeeds } from './sources/custom-feeds.mjs';
@@ -111,6 +112,7 @@ export async function fullBriefing() {
 
     // Tier 5: Live Market Data
     runSource('YFinance', yfinance),
+    runSource('MarketNews', marketNews),
 
     // Tier 5b: User-Defined Custom Sources
     runSource('CustomFeeds', customFeeds),

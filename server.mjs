@@ -15,6 +15,14 @@ import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
 import { generateIntelAnalysis, hasIntelInput, harvestIntelItems } from './lib/llm/intel-analysis.mjs';
+import { generateMarketIntel, hasMarketIntelInput } from './lib/llm/market-intel.mjs';
+import {
+  listWatchlist,
+  addSymbol,
+  updateSymbol,
+  deleteSymbol,
+} from './lib/config/market-watchlist-store.mjs';
+import { testSymbol } from './apis/sources/yfinance.mjs';
 import { collect as collectCustomFeeds, testRssFeed, testCustomSource } from './apis/sources/custom-feeds.mjs';
 import {
   listSources,
@@ -353,6 +361,8 @@ async function hotRefreshCustomSources() {
       synthesized.ideasSource = currentData.ideasSource;
       synthesized.intelAnalysis = currentData.intelAnalysis || [];
       synthesized.intelAnalysisSource = currentData.intelAnalysisSource;
+      synthesized.marketIntel = currentData.marketIntel || [];
+      synthesized.marketIntelSource = currentData.marketIntelSource;
     }
     currentData = synthesized;
     broadcast({ type: 'update', data: currentData });
@@ -408,6 +418,42 @@ app.delete('/api/config/sources/:id', requireAdmin, async (req, res) => {
   if (!result.ok) return res.status(404).json(result);
   const refreshed = await hotRefreshCustomSources();
   res.json({ ...result, refreshed });
+});
+
+// === Market Watchlist API ===
+
+app.get('/api/config/market-watchlist', (req, res) => {
+  res.json({ symbols: listWatchlist(), adminRequired: Boolean(config.adminToken) });
+});
+
+app.post('/api/config/market-watchlist/test', requireAdmin, async (req, res) => {
+  const body = req.body || {};
+  if (!body.symbol) return res.status(400).json({ error: 'symbol is required' });
+  try {
+    const result = await testSymbol(body.symbol, body.assetClass || 'stock');
+    if (!result.ok) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/config/market-watchlist', requireAdmin, async (req, res) => {
+  const result = addSymbol(req.body || {});
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
+});
+
+app.put('/api/config/market-watchlist/:id', requireAdmin, async (req, res) => {
+  const result = updateSymbol(req.params.id, req.body || {});
+  if (!result.ok) return res.status(result.errors?.[0] === 'symbol not found' ? 404 : 400).json(result);
+  res.json(result);
+});
+
+app.delete('/api/config/market-watchlist/:id', requireAdmin, async (req, res) => {
+  const result = deleteSymbol(req.params.id);
+  if (!result.ok) return res.status(404).json(result);
+  res.json(result);
 });
 
 // API: current data
@@ -549,6 +595,35 @@ async function runSweepCycle() {
     } else {
       synthesized.intelAnalysis = [];
       synthesized.intelAnalysisSource = 'no-input';
+    }
+
+    // 5c. Market Intelligence — watchlist-scoped news synthesis
+    if (llmProvider?.isConfigured && config.marketIntel?.enabled !== false && hasMarketIntelInput(synthesized)) {
+      try {
+        console.log('[Crucix] Generating Market Intelligence...');
+        const mi = await generateMarketIntel(llmProvider, synthesized, config);
+        if (mi && mi.length) {
+          synthesized.marketIntel = mi;
+          synthesized.marketIntelSource = 'llm';
+          console.log(`[Crucix] Market Intel generated ${mi.length} items`);
+        } else {
+          synthesized.marketIntel = [];
+          synthesized.marketIntelSource = 'headlines-only';
+        }
+      } catch (miErr) {
+        console.error('[Crucix] Market Intel failed (non-fatal):', miErr.message);
+        synthesized.marketIntel = [];
+        synthesized.marketIntelSource = 'headlines-only';
+      }
+    } else if (!synthesized.markets?.watchlistCount) {
+      synthesized.marketIntel = [];
+      synthesized.marketIntelSource = 'no-watchlist';
+    } else if (!llmProvider?.isConfigured) {
+      synthesized.marketIntel = [];
+      synthesized.marketIntelSource = synthesized.marketNews?.items?.length ? 'headlines-only' : 'disabled';
+    } else {
+      synthesized.marketIntel = [];
+      synthesized.marketIntelSource = 'headlines-only';
     }
 
     // 6. Alert evaluation — Telegram + Discord (LLM with rule-based fallback, multi-tier, semantic dedup)

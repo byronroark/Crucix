@@ -51,6 +51,7 @@ This repo is a maintained fork of [calesthio/Crucix](https://github.com/calesthi
 
 - **Multi-pool Intelligence Analysis** — LLM synthesis across GDELT, Telegram, WHO, ACLED, markets, sanctions, custom feeds, and more ([CUSTOM_SOURCES.md](CUSTOM_SOURCES.md))
 - **Custom OSINT sources** — add RSS, Firecrawl scrapes, or HTTP-JSON APIs from the dashboard **Sources** button (no code edits)
+- **Market watchlist** — track extra stocks/crypto with symbol-scoped news via **+ Track** on Macro + Markets ([MARKET_WATCHLIST.md](MARKET_WATCHLIST.md))
 - **Florida local news** — built-in regional ticker feeds (configurable in `crucix.config.mjs`)
 - **Telegram + Discord alerts** — multi-tier FLASH / PRIORITY / ROUTINE with `/brief`, `/sweep`, daily brief ([TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md))
 - **Docker-first deployment** — tuned for 24/7 on a home NUC or VPS ([DEPLOY_LINODE.md](DEPLOY_LINODE.md))
@@ -216,6 +217,7 @@ To merge upstream Crucix improvements into this fork, see [FORK_MAINTENANCE.md](
 | ---- | --- |
 | Telegram alerts + `/brief` / `/sweep` | [TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md) |
 | Custom RSS / Firecrawl / JSON sources | [CUSTOM_SOURCES.md](CUSTOM_SOURCES.md) |
+| Stock/crypto watchlist + Market Intelligence | [MARKET_WATCHLIST.md](MARKET_WATCHLIST.md) |
 | LLM trade ideas + Intelligence Analysis | Set `LLM_PROVIDER` + `LLM_API_KEY` in `.env` |
 | ACLED conflict data | `ACLED_EMAIL` + `ACLED_PASSWORD` in `.env` (Research tier may need API approval) |
 

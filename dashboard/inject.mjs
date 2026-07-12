@@ -573,7 +573,21 @@ export async function synthesize(data) {
       change: yfQuotes['^VIX'].change,
       changePct: yfQuotes['^VIX'].changePct,
     } : null,
+    tracked: (yfData.tracked || []).map(q => ({
+      symbol: q.symbol, name: q.name, price: q.price,
+      change: q.change, changePct: q.changePct, history: q.history || [],
+      assetClass: q.symbol.includes('-USD') ? 'crypto' : 'stock',
+    })),
+    watchlistCount: (yfData.watchlistSymbols || []).length,
     timestamp: yfData.summary?.timestamp || null,
+  };
+
+  const mnData = data.sources.MarketNews || {};
+  const marketNews = {
+    items: mnData.items || [],
+    bySymbol: mnData.bySymbol || {},
+    symbols: mnData.symbols || [],
+    timestamp: mnData.timestamp || null,
   };
 
   const yfGold = yfQuotes['GC=F'];
@@ -638,6 +652,8 @@ export async function synthesize(data) {
     who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news,
     reliefweb, cisa, cloudflare, patents, bluesky, reddit, sanctions, adsb,
     markets, // Live Yahoo Finance market data
+    marketNews,
+    marketIntel: [], marketIntelSource: config.llm?.provider ? 'pending' : 'disabled',
     ideas: [], ideasSource: 'disabled',
     // Custom user-defined sources (config + drop-in modules)
     customTicker, customAnalyzed, customGeo,

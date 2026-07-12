@@ -1,37 +1,41 @@
 // Yahoo Finance — Live market quotes (no API key required)
-// Provides real-time prices for stocks, ETFs, crypto, commodities
-// Replaces the need for Alpaca or any paid market data provider
+// Core symbols always fetched; user watchlist symbols fetched additionally.
 
 import { safeFetch } from '../utils/fetch.mjs';
+import { loadWatchlist } from '../../lib/config/market-watchlist-store.mjs';
 
 const BASE = 'https://query1.finance.yahoo.com/v8/finance/chart';
 
-// Symbols to track — covers broad market, rates, commodities, crypto, volatility
-const SYMBOLS = {
-  // Indexes / ETFs
+// Core macro panel symbols — always on
+export const CORE_SYMBOLS = {
   '^GSPC': 'S&P 500',
   '^IXIC': 'Nasdaq Composite',
   '^DJI': 'Dow Jones',
   '^RUT': 'Russell 2000',
-  // Rates / Credit
   TLT: '20Y+ Treasury',
   HYG: 'High Yield Corp',
   LQD: 'IG Corporate',
-  // Commodities
   'GC=F': 'Gold',
   'SI=F': 'Silver',
   'CL=F': 'WTI Crude',
   'BZ=F': 'Brent Crude',
   'NG=F': 'Natural Gas',
-  // Crypto
   'BTC-USD': 'Bitcoin',
   'XRP-USD': 'XRP',
   'ETH-USD': 'Ethereum',
-  // Volatility
   '^VIX': 'VIX',
 };
 
-async function fetchQuote(symbol) {
+function allSymbolLabels() {
+  const labels = { ...CORE_SYMBOLS };
+  for (const entry of loadWatchlist()) {
+    labels[entry.symbol] = entry.name || entry.symbol;
+  }
+  return labels;
+}
+
+export async function fetchQuote(symbol, nameMap = null) {
+  const labels = nameMap || allSymbolLabels();
   try {
     const url = `${BASE}/${encodeURIComponent(symbol)}?range=5d&interval=1d&includePrePost=false`;
     const data = await safeFetch(url, {
@@ -49,13 +53,11 @@ async function fetchQuote(symbol) {
     const closes = quotes.close || [];
     const timestamps = result.timestamp || [];
 
-    // Get current price and previous close
     const price = meta.regularMarketPrice ?? closes[closes.length - 1];
     const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length - 2];
     const change = price && prevClose ? price - prevClose : 0;
     const changePct = prevClose ? (change / prevClose) * 100 : 0;
 
-    // Build 5-day history
     const history = [];
     for (let i = 0; i < timestamps.length; i++) {
       if (closes[i] != null) {
@@ -68,7 +70,7 @@ async function fetchQuote(symbol) {
 
     return {
       symbol,
-      name: SYMBOLS[symbol] || meta.shortName || symbol,
+      name: labels[symbol] || meta.shortName || symbol,
       price: Math.round(price * 100) / 100,
       prevClose: Math.round((prevClose || 0) * 100) / 100,
       change: Math.round(change * 100) / 100,
@@ -79,8 +81,17 @@ async function fetchQuote(symbol) {
       history,
     };
   } catch (e) {
-    return { symbol, name: SYMBOLS[symbol] || symbol, error: e.message };
+    return { symbol, name: labels[symbol] || symbol, error: e.message };
   }
+}
+
+/** Test a symbol before adding to watchlist. */
+export async function testSymbol(symbol, assetClass = 'stock') {
+  const { normalizeSymbol } = await import('../../lib/config/market-watchlist-store.mjs');
+  const { symbol: sym } = normalizeSymbol(symbol, assetClass);
+  const q = await fetchQuote(sym, { [sym]: sym });
+  if (!q || q.error) return { ok: false, error: q?.error || 'symbol not found' };
+  return { ok: true, quote: q };
 }
 
 export async function briefing() {
@@ -88,9 +99,13 @@ export async function briefing() {
 }
 
 export async function collect() {
-  const symbols = Object.keys(SYMBOLS);
+  const labels = allSymbolLabels();
+  const watchlist = loadWatchlist();
+  const watchlistSyms = new Set(watchlist.map(w => w.symbol));
+  const symbols = Object.keys(labels);
+
   const results = await Promise.allSettled(
-    symbols.map(s => fetchQuote(s))
+    symbols.map(s => fetchQuote(s, labels))
   );
 
   const quotes = {};
@@ -109,11 +124,15 @@ export async function collect() {
     }
   }
 
-  // Categorize for easy dashboard consumption
+  const tracked = watchlist
+    .map(w => quotes[w.symbol])
+    .filter(q => q && !q.error);
+
   return {
     quotes,
     summary: {
       totalSymbols: symbols.length,
+      watchlistSymbols: watchlist.length,
       ok,
       failed,
       timestamp: new Date().toISOString(),
@@ -123,6 +142,8 @@ export async function collect() {
     commodities: pickGroup(quotes, ['GC=F', 'SI=F', 'CL=F', 'BZ=F', 'NG=F']),
     crypto: pickGroup(quotes, ['BTC-USD', 'XRP-USD', 'ETH-USD']),
     volatility: pickGroup(quotes, ['^VIX']),
+    tracked,
+    watchlistSymbols: [...watchlistSyms],
   };
 }
 
