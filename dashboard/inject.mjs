@@ -269,10 +269,13 @@ export function generateIdeas(V2) {
   const conflictEvents = V2.acled?.totalEvents || 0;
   if (conflictEvents > 50 && V2.energy.wtiRecent.length > 1) {
     const wtiMove = V2.energy.wtiRecent[0] - V2.energy.wtiRecent[V2.energy.wtiRecent.length - 1];
+    const acledRange = V2.acled?.period
+      ? `${V2.acled.period.start}–${V2.acled.period.end}`
+      : 'lagged window';
     if (wtiMove > 2) {
       ideas.push({
         title: 'Conflict Fueling Energy Momentum',
-        text: `${conflictEvents} ACLED events this week + WTI up $${wtiMove.toFixed(1)}. Conflict-energy transmission channel active.`,
+        text: `${conflictEvents} ACLED events (${acledRange}) + WTI up $${wtiMove.toFixed(1)}. Conflict-energy transmission channel active.`,
         type: 'long', confidence: 'Medium', horizon: 'swing'
       });
     }
@@ -445,11 +448,12 @@ export async function synthesize(data) {
 
   // ACLED conflict events
   const acledData = data.sources.ACLED || {};
-  const acled = acledData.error ? { totalEvents: 0, totalFatalities: 0, byRegion: {}, byType: {}, deadliestEvents: [] } : {
+  const acled = acledData.error ? { totalEvents: 0, totalFatalities: 0, byRegion: {}, byType: {}, deadliestEvents: [], period: null } : {
     totalEvents: acledData.totalEvents || 0,
     totalFatalities: acledData.totalFatalities || 0,
     byRegion: acledData.byRegion || {},
     byType: acledData.byType || {},
+    period: acledData.period || null,
     deadliestEvents: (acledData.deadliestEvents || []).slice(0, 15).map(e => ({
       date: e.date, type: e.type, country: e.country, location: e.location,
       fatalities: e.fatalities || 0, lat: e.lat || null, lon: e.lon || null,

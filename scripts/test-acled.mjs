@@ -1,12 +1,19 @@
 #!/usr/bin/env node
-// Verify ACLED auth (env tokens, disk cache, refresh, or password grant).
+// Verify ACLED auth and event data read (/api/acled/read).
 //
 // Usage:
 //   npm run test:acled
 //   npm run test:acled -- --debug
 
 import '../apis/utils/env.mjs';
-import { authenticate, briefing, probeAcledTransport, lastAuthDiagnostics } from '../apis/sources/acled.mjs';
+import {
+  authenticate,
+  briefing,
+  getAcledEventLagConfig,
+  getAcledEventPeriod,
+  probeAcledTransport,
+  lastAuthDiagnostics,
+} from '../apis/sources/acled.mjs';
 
 const debug = process.argv.includes('--debug');
 
@@ -17,6 +24,9 @@ if (!hasToken && !hasPassword) {
   process.exit(2);
 }
 
+const lagConfig = getAcledEventLagConfig();
+const period = getAcledEventPeriod();
+
 console.log('[test-acled] Authenticating...');
 const transport = await probeAcledTransport();
 console.log(`[test-acled] transport: curl=${transport.curlAvailable}, cycletls=${transport.cycleTlsAvailable}`
@@ -24,6 +34,11 @@ console.log(`[test-acled] transport: curl=${transport.curlAvailable}, cycletls=$
 if (!transport.curlAvailable && transport.acledUseCurl !== '0') {
   console.error('[test-acled] WARN: curl not found in container — run `docker compose up -d --build`');
 }
+if (debug) {
+  console.log(`[test-acled] event window: lag=${lagConfig.lagDays}d, span=${lagConfig.windowDays}d`
+    + ` → ${period.start} .. ${period.end}`);
+}
+
 const session = await authenticate();
 if (session.error) {
   console.error('[test-acled] FAIL:', session.error);
@@ -51,14 +66,15 @@ if (debug && session.token) {
   console.log(`[test-acled] Token prefix: ${session.token.slice(0, 12)}...`);
 }
 
-console.log('[test-acled] Fetching 7-day briefing sample...');
+console.log(`[test-acled] Fetching ${lagConfig.windowDays}-day event sample (lag ${lagConfig.lagDays}d, Research tier)...`);
 const data = await briefing();
 if (data.error) {
-  console.error('[test-acled] Briefing FAIL:', data.error);
+  console.error('[test-acled] Event sample FAIL:', data.error);
   process.exit(1);
 }
 
-console.log(`[test-acled] Briefing OK — ${data.totalEvents} events, ${data.totalFatalities} fatalities (7d)`);
+console.log(`[test-acled] Event sample OK — ${data.totalEvents} events, ${data.totalFatalities} fatalities`
+  + ` (${data.period?.start} → ${data.period?.end})`);
 if (data.deadliestEvents?.[0]) {
   const top = data.deadliestEvents[0];
   console.log(`[test-acled] Deadliest: ${top.fatalities} fatalities — ${top.country}, ${top.location} (${top.date})`);

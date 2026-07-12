@@ -27,6 +27,9 @@ const API_BASE  = 'https://acleddata.com/api/acled/read';
 const TOKEN_SKEW_MS = 60_000;           // refresh 1 min before access token expiry
 const DEFAULT_ACCESS_TTL_SEC = 86_400;    // 24h per ACLED docs
 const REFRESH_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days per ACLED docs
+// Research tier latent event data — https://acleddata.com/faq-codebook-tools
+const DEFAULT_EVENT_LAG_DAYS = 365;
+const DEFAULT_EVENT_WINDOW_DAYS = 7;
 
 /** Populated on each authenticate() call — useful for test:acled --debug */
 export const lastAuthDiagnostics = { attempts: [] };
@@ -309,6 +312,37 @@ async function acledRequest(url, opts = {}) {
   }
 }
 
+function parsePositiveInt(envVal, fallback) {
+  const n = Number.parseInt(String(envVal ?? '').trim(), 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** Research-tier default: 12-month lag. Partner/Enterprise: set ACLED_EVENT_LAG_DAYS=7 or 0. */
+export function getAcledEventLagConfig() {
+  return {
+    lagDays: parsePositiveInt(process.env.ACLED_EVENT_LAG_DAYS, DEFAULT_EVENT_LAG_DAYS),
+    windowDays: parsePositiveInt(process.env.ACLED_EVENT_WINDOW_DAYS, DEFAULT_EVENT_WINDOW_DAYS),
+  };
+}
+
+/** Rolling event window ending `lagDays` ago (not ACLED Partner "briefings" product). */
+export function getAcledEventPeriod() {
+  const { lagDays, windowDays } = getAcledEventLagConfig();
+  const end = daysAgo(lagDays);
+  const start = daysAgo(lagDays + windowDays);
+  return { start, end, lagDays, windowDays };
+}
+
+function acledAccessDeniedHint(status) {
+  if (status !== 403) return '';
+  return '\n→ HTTP 403 usually means account tier or API access:\n'
+    + '  1. Gmail accounts often get Open tier (no API) — use an institutional domain email\n'
+    + '  2. Accept Terms of Use and complete profile at acleddata.com\n'
+    + '  3. Request API + Research tier from access@acleddata.com\n'
+    + '  4. Research event data has ~12-month lag — ACLED_EVENT_LAG_DAYS=365 (Crucix default)\n'
+    + '     Partner/Enterprise near-real-time: set ACLED_EVENT_LAG_DAYS=7 or 0';
+}
+
 function cloudflareHint(raw) {
   const text = String(raw || '');
   if (/just a moment|cf-browser-verification|cloudflare/i.test(text)) {
@@ -557,9 +591,16 @@ async function refreshOAuthToken(refreshToken) {
   return postOAuthToken(body);
 }
 
-// Lightweight read to confirm credentials can access ACLED data
+// Lightweight read to confirm credentials can access ACLED event data
 async function probeApiAccess(headers, label) {
-  const params = new URLSearchParams({ _format: 'json', limit: '1' });
+  const { start, end } = getAcledEventPeriod();
+  const params = new URLSearchParams({
+    _format: 'json',
+    limit: '1',
+    event_date: `${start}|${end}`,
+    event_date_where: 'BETWEEN',
+  });
+  debugLog(`Probe date window: ${start} → ${end}`);
   try {
     const { status, body: raw } = await acledRequest(`${API_BASE}?${params}`, {
       headers: buildAcledHeaders(headers),
@@ -852,13 +893,7 @@ export async function getEvents(opts = {}) {
       }
       if (status === 401 || status === 403) {
         emptySession();
-        const hint = status === 403
-          ? '\n→ Fix: Log in at https://acleddata.com/user/login, then:\n'
-            + '  1. Accept Terms of Use (profile → Terms of Use button → check the box)\n'
-            + '  2. Complete all required profile fields\n'
-            + '  3. Ensure your account has the "API" access group\n'
-            + '  Contact access@acleddata.com if issues persist.'
-          : '';
+        const hint = status === 403 ? acledAccessDeniedHint(403) : '';
         return { error: `ACLED data access denied (HTTP ${status}, auth method: ${session.method}). Response: ${errText.slice(0, 300)}${hint}` };
       }
       return { error: `HTTP ${status}: ${errText.slice(0, 200)}` };
@@ -894,7 +929,7 @@ function groupBy(events, field) {
   return map;
 }
 
-// Briefing — last 7 days of global conflict events
+// Event summary — rolling window via /api/acled/read (not ACLED Partner briefings)
 export async function briefing() {
   if (!hasAcledConfig()) {
     return {
@@ -905,8 +940,7 @@ export async function briefing() {
     };
   }
 
-  const start = daysAgo(7);
-  const end   = daysAgo(0);
+  const { start, end, lagDays, windowDays } = getAcledEventPeriod();
 
   const data = await getEvents({
     eventDateStart: start,
@@ -958,7 +992,7 @@ export async function briefing() {
   return {
     source: 'ACLED',
     timestamp: new Date().toISOString(),
-    period: { start, end },
+    period: { start, end, lagDays, windowDays },
     totalEvents: events.length,
     totalFatalities,
     byRegion,
