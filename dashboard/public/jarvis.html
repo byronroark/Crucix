@@ -1642,7 +1642,11 @@ function renderLower(){
 
   // Helper: format market quote card
   const mktCard = (q, withSpark = false) => {
-    if(!q||q.error) return '';
+    if(!q) return '';
+    if(q.pending || q.price == null) {
+      return `<div class="mc"><div class="ml">${q.name||q.symbol}</div><span class="mv" style="color:var(--dim)">—</span><span class="ms" style="color:var(--dim)">loading…</span></div>`;
+    }
+    if(q.error) return '';
     const clr = q.changePct>=0?'var(--accent)':'var(--warn)';
     const arrow = q.changePct>=0?'&#9650;':'&#9660;';
     const isCrypto = q.symbol.includes('-USD') || q.assetClass === 'crypto' || q.symbol.includes('BTC') || q.symbol.includes('ETH') || q.symbol.includes('XRP');
@@ -2483,21 +2487,54 @@ function removeWatchlistFromCache(id) {
   renderWatchlistList(watchlistCache);
 }
 
+function patchDashboardTrackedFromWatchlist(symbols) {
+  if (!D.markets) D.markets = {};
+  const symSet = new Set((symbols || []).map(s => s.symbol));
+  const bySym = new Map();
+  for (const t of (D.markets.tracked || [])) {
+    if (t?.symbol && symSet.has(t.symbol) && t.price != null && !t.pending) {
+      bySym.set(t.symbol, t);
+    }
+  }
+  for (const s of (symbols || [])) {
+    if (!bySym.has(s.symbol)) {
+      bySym.set(s.symbol, {
+        symbol: s.symbol,
+        name: s.name || s.symbol,
+        price: null,
+        change: 0,
+        changePct: 0,
+        history: [],
+        assetClass: s.assetClass || 'stock',
+        pending: true,
+      });
+    }
+  }
+  D.markets.tracked = [...bySym.values()];
+  D.markets.watchlistCount = symbols.length;
+  reinit();
+}
+
 async function ensureWatchlistSynced() {
   if (location.protocol === 'file:') return;
   try {
     const wl = await fetch('/api/config/market-watchlist').then(r => r.json());
-    const savedCount = (wl.symbols || []).length;
-    if (!savedCount) return;
+    const saved = wl.symbols || [];
+    if (!saved.length) return;
+    const liveCount = (D.markets?.tracked || []).filter(t => t.price != null && !t.pending).length;
+    if (liveCount < saved.length) {
+      patchDashboardTrackedFromWatchlist(saved);
+    }
     const trackedCount = (D.markets?.tracked || []).length;
-    if (trackedCount >= savedCount) return;
+    if (trackedCount >= saved.length && liveCount >= saved.length) return;
     const res = await fetch('/api/config/market-watchlist/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ force: true }),
     });
     const data = await res.json().catch(() => ({}));
-    if (res.ok && data.refreshed) await refreshDashboardData();
+    if (res.ok) await refreshDashboardData();
+    else if (!data.refreshed) console.warn('[Crucix] Watchlist sync refresh incomplete');
   } catch (e) {
     console.warn('[Crucix] Watchlist sync:', e.message);
   }
@@ -2622,6 +2659,7 @@ async function saveWatchlistSymbol() {
     try { data = await res.json(); } catch { data = {}; }
     if (!res.ok) throw new Error((data.errors && data.errors[0]) || data.error || `Save failed (${res.status})`);
     applyWatchlistSave(data.symbol, editId);
+    patchDashboardTrackedFromWatchlist(watchlistCache);
     resetWatchlistForm();
     showWatchlistToast(editId ? 'Updated — refreshing dashboard' : 'Added — refreshing dashboard');
     void loadWatchlistPanel();
@@ -2669,6 +2707,7 @@ async function deleteWatchlistSymbol(id) {
     showWatchlistToast(alreadyGone && !res.ok ? 'Already removed — refreshing dashboard' : 'Removed — refreshing dashboard');
     resetWatchlistForm();
     removeWatchlistFromCache(id);
+    patchDashboardTrackedFromWatchlist(watchlistCache);
     void loadWatchlistPanel();
     void refreshWatchlistDashboard();
   } catch (e) {

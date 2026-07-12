@@ -10,7 +10,7 @@ import { exec } from 'child_process';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
 import { fullBriefing } from './apis/briefing.mjs';
-import { synthesize, generateIdeas, buildWatchlistMarketPatch } from './dashboard/inject.mjs';
+import { synthesize, generateIdeas, buildWatchlistMarketPatch, buildTrackedTiles } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
@@ -18,11 +18,13 @@ import { generateIntelAnalysis, hasIntelInput, harvestIntelItems } from './lib/l
 import { generateMarketIntel, hasMarketIntelInput } from './lib/llm/market-intel.mjs';
 import {
   listWatchlist,
+  loadWatchlist,
   addSymbol,
   updateSymbol,
   deleteSymbol,
   normalizeSymbol,
   getDefaultMarketIntelSymbols,
+  loadMarketIntelSymbols,
 } from './lib/config/market-watchlist-store.mjs';
 import {
   loadLastSweepAt,
@@ -391,6 +393,10 @@ async function hotRefreshMarketWatchlist({ force = false } = {}) {
   const latestPath = join(RUNS_DIR, 'latest.json');
   if (!existsSync(latestPath) || !currentData) return false;
   if (!force && sweepInProgress) return false;
+
+  applyInstantWatchlistTracked();
+  broadcast({ type: 'update', data: currentData });
+
   try {
     const raw = JSON.parse(readFileSync(latestPath, 'utf8'));
     raw.sources.YFinance = await collectYFinance();
@@ -420,6 +426,17 @@ async function hotRefreshMarketWatchlist({ force = false } = {}) {
     console.error('[Crucix] Hot refresh after watchlist change failed:', err.message);
     return false;
   }
+}
+
+function applyInstantWatchlistTracked() {
+  if (!currentData) return;
+  if (!currentData.markets) currentData.markets = {};
+  currentData.markets.tracked = buildTrackedTiles({
+    quotes: currentData.markets.quotes || {},
+    tracked: currentData.markets.tracked || [],
+  });
+  currentData.markets.watchlistCount = loadWatchlist().length;
+  currentData.markets.marketIntelSymbolCount = loadMarketIntelSymbols().length;
 }
 
 app.get('/api/config/sources', (req, res) => {
@@ -510,6 +527,8 @@ app.post('/api/config/market-watchlist', requireAdmin, async (req, res) => {
   try {
     const result = addSymbol(req.body || {});
     if (!result.ok) return res.status(400).json(result);
+    applyInstantWatchlistTracked();
+    broadcast({ type: 'update', data: currentData });
     res.json({ ...result, refreshed: null, refreshPending: true });
     hotRefreshMarketWatchlist({ force: true }).catch(err => {
       console.error('[Crucix] Background watchlist refresh failed:', err.message);
@@ -524,6 +543,8 @@ app.put('/api/config/market-watchlist/:id', requireAdmin, async (req, res) => {
   try {
     const result = updateSymbol(req.params.id, req.body || {});
     if (!result.ok) return res.status(result.errors?.[0] === 'symbol not found' ? 404 : 400).json(result);
+    applyInstantWatchlistTracked();
+    broadcast({ type: 'update', data: currentData });
     res.json({ ...result, refreshed: null, refreshPending: true });
     hotRefreshMarketWatchlist({ force: true }).catch(err => {
       console.error('[Crucix] Background watchlist refresh failed:', err.message);
@@ -538,6 +559,8 @@ app.delete('/api/config/market-watchlist/:id', requireAdmin, async (req, res) =>
   try {
     const result = deleteSymbol(req.params.id);
     if (!result.ok) return res.status(404).json(result);
+    applyInstantWatchlistTracked();
+    broadcast({ type: 'update', data: currentData });
     res.json({ ...result, refreshed: null, refreshPending: true });
     hotRefreshMarketWatchlist({ force: true }).catch(err => {
       console.error('[Crucix] Background watchlist refresh failed:', err.message);
@@ -837,9 +860,15 @@ async function start() {
         if (delta) data.delta = delta;
       }
       currentData = data;
+      applyInstantWatchlistTracked();
       const restored = data.ideas?.length || data.intelAnalysis?.length || data.marketIntel?.length;
       console.log(`[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly${restored ? ' (LLM summaries restored)' : ''}`);
       broadcast({ type: 'update', data: currentData });
+      if (loadWatchlist().length) {
+        hotRefreshMarketWatchlist({ force: true }).catch(err => {
+          console.warn('[Crucix] Watchlist quote refresh on startup failed:', err.message);
+        });
+      }
     } catch {
       console.log('[Crucix] No existing data found — first sweep required');
     }

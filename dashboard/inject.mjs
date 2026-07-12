@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import config from '../crucix.config.mjs';
 import { loadMergedSources } from '../lib/config/custom-sources-store.mjs';
-import { loadMarketIntelSymbols, normalizeSymbol, isDefaultMarketIntelSymbol } from '../lib/config/market-watchlist-store.mjs';
+import { loadMarketIntelSymbols, loadWatchlist, normalizeSymbol, isDefaultMarketIntelSymbol } from '../lib/config/market-watchlist-store.mjs';
 import { DEFAULT_CRYPTO_SYMBOLS } from '../apis/sources/yfinance.mjs';
 import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
@@ -333,6 +333,69 @@ export function generateIdeas(V2) {
   return ideas.slice(0, 8);
 }
 
+function trackedPlaceholder(entry) {
+  return {
+    symbol: entry.symbol,
+    name: entry.name || entry.symbol,
+    price: null,
+    change: 0,
+    changePct: 0,
+    history: [],
+    assetClass: entry.assetClass || (entry.symbol.includes('-USD') ? 'crypto' : 'stock'),
+    pending: true,
+  };
+}
+
+function isExtraTrackedSymbol(symbol, assetClass = 'stock') {
+  const norm = normalizeSymbol(symbol, assetClass).symbol;
+  const cryptoSymSet = new Set(DEFAULT_CRYPTO_SYMBOLS);
+  return !cryptoSymSet.has(norm) && !isDefaultMarketIntelSymbol(symbol);
+}
+
+/** Tracked tiles from watchlist + YFinance quotes (placeholders when quotes not ready). */
+export function buildTrackedTiles(yfData = {}) {
+  const yfQuotes = yfData.quotes || {};
+  const bySymbol = new Map();
+
+  for (const q of (yfData.tracked || [])) {
+    if (!q || q.error) continue;
+    const assetClass = q.assetClass || (q.symbol.includes('-USD') ? 'crypto' : 'stock');
+    if (!isExtraTrackedSymbol(q.symbol, assetClass)) continue;
+    bySymbol.set(q.symbol, {
+      symbol: q.symbol,
+      name: q.name,
+      price: q.price,
+      change: q.change,
+      changePct: q.changePct,
+      history: q.history || [],
+      assetClass,
+      ...(q.pending || q.price == null ? { pending: true } : {}),
+    });
+  }
+
+  for (const entry of loadWatchlist()) {
+    if (!isExtraTrackedSymbol(entry.symbol, entry.assetClass || 'stock')) continue;
+    const existing = bySymbol.get(entry.symbol);
+    if (existing?.price != null) continue;
+    const q = yfQuotes[entry.symbol];
+    if (q && !q.error) {
+      bySymbol.set(entry.symbol, {
+        symbol: q.symbol,
+        name: q.name || entry.name,
+        price: q.price,
+        change: q.change,
+        changePct: q.changePct,
+        history: q.history || [],
+        assetClass: entry.assetClass || 'stock',
+      });
+    } else if (!existing) {
+      bySymbol.set(entry.symbol, trackedPlaceholder(entry));
+    }
+  }
+
+  return [...bySymbol.values()];
+}
+
 /** Markets + marketNews patch from YFinance/MarketNews only (no RSS). Used for watchlist hot refresh. */
 export function buildWatchlistMarketPatch(data) {
   const yfData = data.sources.YFinance || {};
@@ -353,7 +416,6 @@ export function buildWatchlistMarketPatch(data) {
     return (yfData.tracked || []).find(q => normalizeSymbol(q.symbol, 'crypto').symbol === sym) || null;
   };
   const cryptoTiles = DEFAULT_CRYPTO_SYMBOLS.map(findCryptoQuote).filter(Boolean).map(mapQuoteTile);
-  const cryptoSymSet = new Set(DEFAULT_CRYPTO_SYMBOLS);
   const markets = {
     quotes: yfQuotes,
     indexes: (yfData.indexes || []).map(q => ({
@@ -374,17 +436,13 @@ export function buildWatchlistMarketPatch(data) {
       change: yfQuotes['^VIX'].change,
       changePct: yfQuotes['^VIX'].changePct,
     } : null,
-    tracked: (yfData.tracked || [])
-      .filter(q => {
-        const norm = normalizeSymbol(q.symbol, 'crypto').symbol;
-        return !cryptoSymSet.has(norm) && !isDefaultMarketIntelSymbol(norm);
-      })
-      .map(q => ({
-        symbol: q.symbol, name: q.name, price: q.price,
-        change: q.change, changePct: q.changePct, history: q.history || [],
-        assetClass: q.symbol.includes('-USD') ? 'crypto' : 'stock',
-      })),
-    watchlistCount: (yfData.watchlistSymbols || []).length,
+    tracked: buildTrackedTiles(yfData).map(q => ({
+      symbol: q.symbol, name: q.name, price: q.price,
+      change: q.change, changePct: q.changePct, history: q.history || [],
+      assetClass: q.assetClass || (q.symbol.includes('-USD') ? 'crypto' : 'stock'),
+      ...(q.pending ? { pending: true } : {}),
+    })),
+    watchlistCount: loadWatchlist().length,
     marketIntelSymbolCount: loadMarketIntelSymbols().length,
     timestamp: yfData.summary?.timestamp || null,
   };

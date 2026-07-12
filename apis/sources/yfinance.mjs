@@ -130,8 +130,20 @@ export async function collect() {
   const coreSymSet = new Set(Object.keys(CORE_SYMBOLS));
   const tracked = watchlist
     .filter(w => !coreSymSet.has(w.symbol) && !isDefaultMarketIntelSymbol(w.symbol))
-    .map(w => quotes[w.symbol])
-    .filter(q => q && !q.error);
+    .map(w => {
+      const q = quotes[w.symbol];
+      if (q && !q.error) return q;
+      return {
+        symbol: w.symbol,
+        name: w.name || w.symbol,
+        price: null,
+        change: 0,
+        changePct: 0,
+        history: [],
+        assetClass: w.assetClass || 'stock',
+        pending: true,
+      };
+    });
 
   return {
     quotes,
