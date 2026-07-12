@@ -207,7 +207,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .metrics-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
 .mc{padding:10px;border:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)}
 .mc .ml{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--dim)}
-.mc .mv{font-family:var(--mono);font-size:18px;font-weight:600;margin-top:6px;display:block}
+.mc .mv{font-family:var(--mono);font-size:18px;font-weight:600;margin-top:6px;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.mc .mv .spark-svg{width:100%;height:22px;margin-top:2px}
 .mc .ms{font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:4px;display:block}
 .mc .mbar{height:3px;margin-top:8px;background:rgba(255,255,255,0.06);border-radius:1px;overflow:hidden}
 .mc .mbar span{display:block;height:100%;border-radius:1px;background:linear-gradient(90deg,rgba(68,204,255,0.4),var(--accent))}
@@ -1672,13 +1673,16 @@ function renderLower(){
     const f = D.fred.find(f=>f.id===id);
     return f?.recent?.length > 1 ? {spark: f.recent, sparkUp: up} : {};
   };
-  metrics[0] = {...metrics[0], spark: D.energy.wtiRecent, sparkUp: false};
+  const quoteHist = (sym) => (quotes[sym]?.history || []).map(h => typeof h === 'number' ? h : h?.close).filter(v => v != null);
+  metrics[0] = {...metrics[0], spark: D.energy.wtiRecent?.length > 1 ? D.energy.wtiRecent : quoteHist('CL=F'), sparkUp: (quotes['CL=F']?.changePct ?? 0) >= 0};
+  metrics[1] = {...metrics[1], spark: quoteHist('BZ=F'), sparkUp: (quotes['BZ=F']?.changePct ?? 0) >= 0};
+  metrics[2] = {...metrics[2], spark: quoteHist('NG=F'), sparkUp: (quotes['NG=F']?.changePct ?? 0) >= 0};
   metrics[3] = {...metrics[3], spark: metals.goldRecent, sparkUp: (metals.goldChangePct ?? 0) >= 0};
   metrics[4] = {...metrics[4], spark: metals.silverRecent, sparkUp: (metals.silverChangePct ?? 0) >= 0};
 
   // Build live market cards from Yahoo Finance
-  const indexCards = (mkt.indexes||[]).map(q => mktCard(q)).join('');
-  const cryptoCards = (mkt.crypto||[]).map(q => mktCard(q)).join('');
+  const indexCards = (mkt.indexes||[]).map(q => mktCard(q, true)).join('');
+  const cryptoCards = (mkt.crypto||[]).map(q => mktCard(q, true)).join('');
   const trackedCards = (mkt.tracked||[]).map(q => mktCard(q, true)).join('');
   const hasTracked = Boolean(trackedCards);
   const rateCards = (mkt.rates||[]).map(mktCard).join('');
