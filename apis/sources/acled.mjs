@@ -445,26 +445,28 @@ function cleanEnvToken(value) {
 }
 
 function seedRefreshToken() {
+  if (existsSync(TOKEN_CACHE_FILE)) {
+    try {
+      const doc = JSON.parse(readFileSync(TOKEN_CACHE_FILE, 'utf8'));
+      const cached = doc.refresh_token?.trim();
+      if (cached) {
+        sessionCache.refreshToken = cached;
+        sessionCache.refreshExpires = doc.refresh_expires_at
+          ? new Date(doc.refresh_expires_at).getTime()
+          : Date.now() + REFRESH_TTL_MS;
+        debugLog('Seeded refresh_token from disk cache');
+        return;
+      }
+    } catch {
+      // ignore corrupt cache
+    }
+  }
+
   const envRefresh = cleanEnvToken(process.env.ACLED_REFRESH_TOKEN);
   if (envRefresh) {
     sessionCache.refreshToken = envRefresh;
     sessionCache.refreshExpires = Date.now() + REFRESH_TTL_MS;
     debugLog('Seeded refresh_token from .env');
-    return;
-  }
-
-  if (!existsSync(TOKEN_CACHE_FILE)) return;
-  try {
-    const doc = JSON.parse(readFileSync(TOKEN_CACHE_FILE, 'utf8'));
-    const cached = doc.refresh_token?.trim();
-    if (!cached) return;
-    sessionCache.refreshToken = cached;
-    sessionCache.refreshExpires = doc.refresh_expires_at
-      ? new Date(doc.refresh_expires_at).getTime()
-      : Date.now() + REFRESH_TTL_MS;
-    debugLog('Seeded refresh_token from disk cache');
-  } catch {
-    // ignore corrupt cache
   }
 }
 function envTokenBootstrap() {
@@ -500,6 +502,18 @@ function emptySession() {
   };
 }
 
+function apiAccessDeniedError(detail = '') {
+  const email = cleanEnvToken(process.env.ACLED_EMAIL);
+  return {
+    apiAccessDenied: true,
+    error: 'ACLED OAuth is valid but the event API returned HTTP 403 (API access not enabled for this account yet).'
+      + (email ? ` Account: ${email}.` : '')
+      + ' Contact access@acleddata.com to enable Research-tier API access.'
+      + acledAccessDeniedHint(403)
+      + (detail ? `\n${detail}` : ''),
+  };
+}
+
 function invalidateTokenCacheFile() {
   try {
     if (existsSync(TOKEN_CACHE_FILE)) {
@@ -511,21 +525,18 @@ function invalidateTokenCacheFile() {
   }
 }
 
-async function verifyOAuthSessionCanRead(session) {
-  if (!session?.token) return { error: 'No access token in session' };
-  const probe = await probeAccessToken(session.token);
-  if (!probe.error) return session;
-  return { error: `OAuth token cannot read ACLED event data: ${probe.error}` };
-}
-
 async function tryReturnVerifiedOAuthSession() {
   if (!accessTokenValid()) return null;
-  const verified = await verifyOAuthSessionCanRead(sessionCache);
-  if (!verified.error) return verified;
-  debugLog(verified.error);
-  noteAuthAttempt(verified.error);
+  const probe = await probeAccessToken(sessionCache.token);
+  if (!probe.error) return sessionCache;
+  const msg = `OAuth token cannot read ACLED event data: ${probe.error}`;
+  debugLog(msg);
+  noteAuthAttempt(msg);
+  if (/HTTP 403/.test(probe.error)) {
+    return apiAccessDeniedError(probe.error);
+  }
   invalidateAccessToken();
-  if (/403|401/.test(verified.error)) invalidateTokenCacheFile();
+  if (/HTTP 401/.test(probe.error)) invalidateTokenCacheFile();
   return null;
 }
 
@@ -706,6 +717,12 @@ async function establishOAuthSession(tokenResult) {
 
   const probe = await probeAccessToken(tokenResult.token);
   if (probe.error) {
+    if (/HTTP 403/.test(probe.error)) {
+      applyOAuthSession(tokenResult);
+      persistOAuthTokens();
+      debugLog('OAuth tokens cached; event API returns 403 until ACLED enables API access');
+      return apiAccessDeniedError(probe.error);
+    }
     return { error: `OAuth token rejected by ACLED API: ${probe.error}` };
   }
 
@@ -779,10 +796,12 @@ async function authenticate() {
   lastAuthDiagnostics.attempts = [];
 
   const cached = await tryReturnVerifiedOAuthSession();
+  if (cached?.apiAccessDenied) return cached;
   if (cached) return cached;
 
   if (loadTokenCacheIntoSession()) {
     const fromDisk = await tryReturnVerifiedOAuthSession();
+    if (fromDisk?.apiAccessDenied) return fromDisk;
     if (fromDisk) return fromDisk;
   }
 
@@ -796,6 +815,7 @@ async function authenticate() {
     const refreshed = await refreshOAuthToken(sessionCache.refreshToken);
     if (refreshed.token) {
       const session = await establishOAuthSession(refreshed);
+      if (session.apiAccessDenied) return session;
       if (!session.error) return session;
       errors.push(`Refresh+probe: ${session.error}`);
       noteAuthAttempt(session.error);
@@ -812,6 +832,7 @@ async function authenticate() {
   if (envTokens) {
     debugLog('Probing ACLED_ACCESS_TOKEN from .env');
     const session = await establishOAuthSession(envTokens);
+    if (session.apiAccessDenied) return session;
     if (!session.error) return session;
     errors.push(`Env token+probe: ${session.error}`);
     noteAuthAttempt(session.error);
@@ -827,6 +848,7 @@ async function authenticate() {
   const oauthResult = await loginOAuth(email, password);
   if (oauthResult.token) {
     const session = await establishOAuthSession(oauthResult);
+    if (session.apiAccessDenied) return session;
     if (!session.error) return session;
     errors.push(`OAuth+probe: ${session.error}`);
     noteAuthAttempt(session.error);
@@ -848,11 +870,13 @@ async function authenticate() {
   }
 
   emptySession();
-  const tokenHint = errors.some((e) => /401|400|expired|invalid/i.test(e))
-    ? '\n\n→ Tokens are expired or invalid. Refresh on the NUC host:\n'
-      + '    node scripts/acled-host-refresh.mjs\n'
-      + '  Or get new tokens via PowerShell curl.exe and update ACLED_ACCESS_TOKEN + ACLED_REFRESH_TOKEN in .env.'
-    : '';
+  const tokenHint = errors.some((e) => /403/.test(e))
+    ? '\n\n→ OAuth works but API read is forbidden. Wait for access@acleddata.com to enable API on your account.'
+    : errors.some((e) => /401|400|expired|invalid/i.test(e))
+      ? '\n\n→ Tokens are expired or invalid. Refresh on the NUC host:\n'
+        + '    node scripts/acled-host-refresh.mjs\n'
+        + '  Remove stale ACLED_ACCESS_TOKEN / ACLED_REFRESH_TOKEN from .env if using email/password.'
+      : '';
   return { error: `All ACLED auth methods failed.\n${errors.join('\n')}${tokenHint}` };
 }
 
@@ -932,13 +956,15 @@ export async function getEvents(opts = {}) {
         emptySession();
         return { error: `ACLED blocked by Cloudflare (HTTP ${status}, auth method: ${session.method}). ${cf}` };
       }
-      if (status === 401 || status === 403) {
-        emptySession();
-        invalidateTokenCacheFile();
+      if (status === 403) {
         const email = cleanEnvToken(process.env.ACLED_EMAIL);
         const emailHint = email ? `\n  Configured account: ${email}` : '';
-        const hint = status === 403 ? acledAccessDeniedHint(403) + emailHint : '';
-        return { error: `ACLED data access denied (HTTP ${status}, auth method: ${session.method}). Response: ${errText.slice(0, 300)}${hint}` };
+        return { error: `ACLED data access denied (HTTP 403, auth method: ${session.method}). Response: ${errText.slice(0, 300)}${acledAccessDeniedHint(403)}${emailHint}` };
+      }
+      if (status === 401) {
+        emptySession();
+        invalidateTokenCacheFile();
+        return { error: `ACLED data access denied (HTTP 401, auth method: ${session.method}). Response: ${errText.slice(0, 300)}` };
       }
       return { error: `HTTP ${status}: ${errText.slice(0, 200)}` };
     }

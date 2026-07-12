@@ -35,6 +35,9 @@ if (!hasToken && !hasPassword) {
   console.error('[test-acled] Set ACLED_ACCESS_TOKEN (+ ACLED_REFRESH_TOKEN) or ACLED_EMAIL/ACLED_PASSWORD in .env');
   process.exit(2);
 }
+if (hasToken && hasPassword) {
+  console.warn('[test-acled] WARN: ACLED_EMAIL and ACLED_ACCESS_TOKEN both set — remove stale tokens from .env');
+}
 
 const lagConfig = getAcledEventLagConfig();
 const period = getAcledEventPeriod();
@@ -52,6 +55,11 @@ if (debug) {
 }
 
 const session = await authenticate();
+if (session.apiAccessDenied) {
+  console.error('[test-acled] OAuth OK — waiting on ACLED API access');
+  console.error('[test-acled]', session.error);
+  process.exit(1);
+}
 if (session.error) {
   console.error('[test-acled] FAIL:', session.error);
   if (lastAuthDiagnostics.attempts.length) {
