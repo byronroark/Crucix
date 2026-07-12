@@ -223,13 +223,14 @@ async function acledRequestCurl(url, {
   }
 }
 
-async function acledRequestCycleTLS(url, {
-  method = 'GET',
-  headers = {},
-  body = null,
-  timeoutMs = 15000,
-  followRedirects = true,
-} = {}) {
+async function acledRequestCycleTLS(url, requestOpts = {}) {
+  const {
+    method = 'GET',
+    headers = {},
+    body = null,
+    timeoutMs = 15000,
+    followRedirects = true,
+  } = requestOpts;
   const cycleTLS = await getCycleTlsClient();
   const response = await cycleTLS(url, {
     headers,
@@ -246,7 +247,7 @@ async function acledRequestCycleTLS(url, {
     : (response?.body ? String(response.body) : '');
   if (!text && curlAvailable) {
     debugLog('cycletls returned empty body — retrying via curl');
-    return acledRequestCurl(url, opts);
+    return acledRequestCurl(url, requestOpts);
   }
   return { status, body: text, setCookies: [], transport: 'cycletls' };
 }
