@@ -14,6 +14,16 @@ test('extractJsonArray unwraps object wrappers', () => {
   assert.equal(arr[0].title, 'X');
 });
 
+test('extractJsonArray repairs trailing commas', () => {
+  const arr = extractJsonArray('[{"title":"A","type":"LONG","confidence":"HIGH"},]', { arrayKeys: ['ideas'] });
+  assert.equal(arr[0].title, 'A');
+});
+
+test('extractJsonArray handles multipart-style string input', () => {
+  const arr = extractJsonArray('{"summaries":[{"title":"T","summary":"Body text"}]}');
+  assert.equal(arr[0].summary, 'Body text');
+});
+
 test('extractJsonArray extracts array from trailing prose', () => {
   const text = 'Analysis:\n[{"title":"A","summary":"B"}]\nHope this helps.';
   const arr = extractJsonArray(text);

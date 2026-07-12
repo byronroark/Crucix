@@ -11,7 +11,7 @@
 [License: AGPL v3](LICENSE)
 [Dependencies](#architecture)
 [Sources](#data-sources-27)
-[Docker](#docker)
+[Deployment](#deployment)
 
 **Enter The Signal Network**
 
@@ -45,6 +45,20 @@ Try the live demo first at [https://www.crucix.live/](https://www.crucix.live/),
 
 No cloud. No telemetry. No subscriptions. Just `node server.mjs` and you're running.
 
+### This fork (`byronroark/Crucix`)
+
+This repo is a maintained fork of [calesthio/Crucix](https://github.com/calesthio/Crucix) with extra OSINT and ops work on top of the upstream dashboard:
+
+- **Multi-pool Intelligence Analysis** — LLM synthesis across GDELT, Telegram, WHO, ACLED, markets, sanctions, custom feeds, and more ([CUSTOM_SOURCES.md](CUSTOM_SOURCES.md))
+- **Custom OSINT sources** — add RSS, Firecrawl scrapes, or HTTP-JSON APIs from the dashboard **Sources** button (no code edits)
+- **Florida local news** — built-in regional ticker feeds (configurable in `crucix.config.mjs`)
+- **Telegram + Discord alerts** — multi-tier FLASH / PRIORITY / ROUTINE with `/brief`, `/sweep`, daily brief ([TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md))
+- **Docker-first deployment** — tuned for 24/7 on a home NUC or VPS ([DEPLOY_LINODE.md](DEPLOY_LINODE.md))
+
+Upstream sync notes: [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md)
+
+---
+
 ## Token / Asset Warning
 
 > [!WARNING]
@@ -66,18 +80,33 @@ It was built for anyone who wants to understand what's actually happening in the
 
 ## Quick Start
 
+**Fastest path for a friend trying it locally:** clone → copy `.env` → `docker compose up -d --build` → open `http://localhost:3117`. See [Deployment](#deployment) for NUC/VPS 24/7 setup.
+
+### Option A — Docker (recommended)
+
 ```bash
-# 1. Clone the repo
-git clone https://github.com/calesthio/Crucix.git
+git clone https://github.com/byronroark/Crucix.git
 cd Crucix
+cp .env.example .env    # add API keys (see API Keys Setup below)
+docker compose up -d --build
+```
 
-# 2. Install dependencies (just Express)
+Dashboard at `http://localhost:3117`. Sweep data persists in `./runs/` via volume mount.
+
+```bash
+docker compose logs -f crucix          # watch sweeps
+docker compose exec crucix npm run test:telegram   # test alerts (if configured)
+```
+
+> **After any `git pull`:** run `docker compose up -d --build` — a plain `restart` does **not** pick up code changes (files are baked into the image).
+
+### Option B — Node.js (development)
+
+```bash
+git clone https://github.com/byronroark/Crucix.git
+cd Crucix
 npm install
-
-# 3. Copy env template and add your API keys (see below)
 cp .env.example .env
-
-# 4. Start the dashboard
 npm run dev
 ```
 
@@ -91,18 +120,102 @@ npm run dev
 
 The dashboard opens automatically at `http://localhost:3117` and immediately begins its first intelligence sweep. This initial sweep queries all 27 sources in parallel and typically takes 30–60 seconds — the dashboard will appear empty until the sweep completes and pushes the first data update. After that, it auto-refreshes every 15 minutes via SSE (Server-Sent Events). No manual page refresh needed.
 
-**Requirements:** Node.js 22+ (uses native `fetch`, top-level `await`, ESM)
+**Requirements:** Node.js 22+ (uses native `fetch`, top-level `await`, ESM). Docker is optional but recommended for always-on use.
 
-### Docker
+---
+
+## Deployment
+
+Run Crucix where it can stay online — your laptop works for testing; a home server or small VPS is better for Telegram alerts and daily briefs.
+
+### Local machine (Windows / macOS / Linux)
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine on Linux).
+2. Clone this repo and create `.env` from `.env.example`.
+3. Start:
 
 ```bash
-git clone https://github.com/calesthio/Crucix.git
-cd Crucix
-cp .env.example .env    # add your API keys
-docker compose up -d
+docker compose up -d --build
 ```
 
-Dashboard at `http://localhost:3117`. Sweep data persists in `./runs/` via volume mount. Includes a health check endpoint.
+4. Open `http://localhost:3117` and wait 30–60 seconds for the first sweep.
+
+**Useful commands:**
+
+| Command | Purpose |
+| ------- | ------- |
+| `docker compose logs -f crucix` | Follow sweep / LLM / alert logs |
+| `docker compose ps` | Confirm container is running |
+| `docker compose up -d --build` | Deploy after `git pull` (rebuilds image) |
+| `docker compose restart crucix` | Reload `.env` only — **not** for code updates |
+| `docker compose down` | Stop (alerts stop too — run only one instance per bot token) |
+
+### Home server / NUC (LAN access)
+
+Same Docker flow as local. On the host:
+
+```bash
+git clone https://github.com/byronroark/Crucix.git
+cd Crucix
+cp .env.example .env   # copy your keys from dev machine
+docker compose up -d --build
+```
+
+Open the dashboard from another device on your network: `http://<nuc-lan-ip>:3117` (e.g. `http://192.168.1.50:3117`).
+
+If the container cannot write to `runs/` (permission errors on Linux), set your host user/group in `.env`:
+
+```env
+PUID=1000
+PGID=1000
+```
+
+Then `docker compose up -d --build` again. The `./runs` folder holds sweep cache, custom source config, ACLED OAuth cache, and delta memory.
+
+**Stop the old instance before moving bots:** only one Crucix should use a given `TELEGRAM_BOT_TOKEN` / `DISCORD_BOT_TOKEN`. On the old host run `docker compose down` first.
+
+### VPS (Linode, DigitalOcean, etc.)
+
+For a public-facing server with SSH hardening, firewall, and tunnel-based dashboard access, follow the full guide:
+
+**[DEPLOY_LINODE.md](DEPLOY_LINODE.md)** — step-by-step for a ~$5/mo Ubuntu VM (applies to most VPS providers).
+
+TL;DR on the server:
+
+```bash
+git clone https://github.com/byronroark/Crucix.git
+cd Crucix
+nano .env              # paste secrets — never commit this file
+docker compose up -d --build
+```
+
+Access the dashboard securely via SSH tunnel from your laptop:
+
+```bash
+ssh -L 3117:localhost:3117 user@<server-ip>
+```
+
+Then open `http://localhost:3117`. Do not expose port 3117 to the public internet without adding authentication.
+
+### Updating a running deployment
+
+```bash
+cd Crucix
+git pull
+docker compose up -d --build
+docker compose logs --tail=50 crucix
+```
+
+To merge upstream Crucix improvements into this fork, see [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md).
+
+### Optional services (after deploy)
+
+| Goal | Doc |
+| ---- | --- |
+| Telegram alerts + `/brief` / `/sweep` | [TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md) |
+| Custom RSS / Firecrawl / JSON sources | [CUSTOM_SOURCES.md](CUSTOM_SOURCES.md) |
+| LLM trade ideas + Intelligence Analysis | Set `LLM_PROVIDER` + `LLM_API_KEY` in `.env` |
+| ACLED conflict data | `ACLED_EMAIL` + `ACLED_PASSWORD` in `.env` (Research tier may need API approval) |
 
 ---
 
@@ -120,6 +233,9 @@ A self-contained Jarvis-style HUD with:
 - **Risk gauges** — VIX, high-yield spread, supply chain pressure index
 - **OSINT feed** — English-language posts from 17 Telegram intelligence channels (expandable)
 - **News ticker** — merged RSS + GDELT headlines + Telegram posts, auto-scrolling
+- **Local news ticker** — regional feeds (this fork ships Florida examples; add your own via **Sources** or `crucix.config.mjs`)
+- **Intelligence Analysis** — multi-pool LLM synthesis (GDELT, Telegram, WHO, ACLED, markets, sanctions, custom `analyzed` feeds, and more) when `LLM_PROVIDER` is set
+- **Custom OSINT sources** — dashboard **Sources** button for RSS / Firecrawl / HTTP-JSON; see [CUSTOM_SOURCES.md](CUSTOM_SOURCES.md)
 - **Sweep delta** — live panel showing what changed since last sweep (new signals, escalations, de-escalations with severity)
 - **Cross-source signals** — correlated intelligence across satellite, economic, conflict, and social domains
 - **Nuclear watch** — real-time radiation readings from Safecast + EPA RadNet
@@ -152,7 +268,7 @@ The server runs a sweep cycle every 15 minutes (configurable). Each cycle:
 1. Queries all 27 sources in parallel (~30s)
 2. Synthesizes raw data into dashboard format
 3. Computes delta from previous run (what changed, escalated, de-escalated) — visible in the **Sweep Delta** panel on the dashboard
-4. Generates LLM trade ideas (if configured)
+4. Generates LLM trade ideas + multi-pool Intelligence Analysis (if `LLM_PROVIDER` is configured)
 5. Evaluates breaking news alerts — multi-tier (FLASH / PRIORITY / ROUTINE) with semantic dedup. Sends to Telegram and/or Discord if configured. Works with LLM evaluation or falls back to rule-based alerting when LLM is unavailable.
 6. Pushes update to all connected browsers via SSE
 
@@ -202,7 +318,8 @@ Alerts are delivered as rich embeds with color-coded sidebars: red for FLASH, ye
 
 Connect any of 8 LLM providers for enhanced analysis:
 
-- **AI trade ideas** — quantitative analyst producing 5-8 actionable ideas citing specific data
+- **AI trade ideas** — quantitative analyst producing 5-8 actionable ideas citing specific data (Leverageable Ideas panel)
+- **Intelligence Analysis** — OSINT-focused synthesis from multiple pools (separate prompt/pipeline from trade ideas)
 - **Smarter alert evaluation** — LLM classifies signals into FLASH/PRIORITY/ROUTINE tiers with cross-domain correlation and confidence scoring
 - Providers: Anthropic Claude, OpenAI, Google Gemini, OpenRouter (Unified API), OpenAI Codex (ChatGPT subscription), MiniMax, Mistral, Grok
 - Graceful fallback — when LLM is unavailable, a rule-based engine takes over alert evaluation. LLM failures never crash the sweep cycle.
@@ -249,7 +366,7 @@ Set `LLM_PROVIDER` to one of: `anthropic`, `openai`, `gemini`, `codex`, `openrou
 | `anthropic`  | `LLM_API_KEY`                    | claude-sonnet-4-6    |
 | `openai`     | `LLM_API_KEY`                    | gpt-5.4              |
 | `gemini`     | `LLM_API_KEY`                    | gemini-3.1-pro       |
-| `openrouter` | `LLM_API_KEY`                    | openrouter/auto      |
+| `openrouter` | `LLM_API_KEY`                    | `anthropic/claude-sonnet-4.6` or `openrouter/auto` |
 | `codex`      | None (uses `~/.codex/auth.json`) | gpt-5.3-codex        |
 | `minimax`    | `LLM_API_KEY`                    | MiniMax-M2.5         |
 | `mistral`    | `LLM_API_KEY`                    | mistral-large-latest |
@@ -340,7 +457,13 @@ crucix/
 │   │   ├── minimax.mjs        # MiniMax (M2.5, 204K context)
 │   │   ├── mistral.mjs        # Mistral AI
 │   │   ├── ideas.mjs          # LLM-powered trade idea generation
+│   │   ├── intel-analysis.mjs # Multi-pool Intelligence Analysis panel
+│   │   ├── intel-input.mjs  # Harvests OSINT pools for intel LLM
 │   │   └── index.mjs          # Factory: createLLMProvider()
+│   ├── config/
+│   │   └── custom-sources-store.mjs  # User-managed sources (dashboard UI)
+│   ├── custom/
+│   │   └── history.mjs        # Append-only custom source item logs
 │   ├── delta/                 # Change tracking between sweeps
 │   │   ├── engine.mjs         # Delta computation — semantic dedup, configurable thresholds, severity scoring
 │   │   ├── memory.mjs         # Hot memory (3 runs, atomic writes) + cold storage (daily archives)
@@ -441,6 +564,10 @@ crucix/
 | `npm run inject`     | `node dashboard/inject.mjs`        | Inject latest data into static HTML                 |
 | `npm run brief:save` | `node apis/save-briefing.mjs`      | Run sweep + save timestamped JSON                   |
 | `npm run diag`       | `node diag.mjs`                    | Run diagnostics (Node version, imports, port check) |
+| `npm run test:telegram` | `node scripts/test-telegram.mjs` | Send a test Telegram alert |
+| `npm run test:intel-analysis` | `node scripts/test-intel-analysis.mjs` | Dry-run Intelligence Analysis LLM |
+| `npm run test:custom-source` | `node scripts/test-custom-source.mjs` | Test one custom source by name |
+| `npm run test:acled` | `node scripts/test-acled.mjs`     | Probe ACLED OAuth + event API |
 
 
 ---
@@ -454,7 +581,7 @@ All settings are in `.env` with sensible defaults:
 | -------------------------- | -------------------- | --------------------------------------------------------------------------------------- |
 | `PORT`                     | `3117`               | Dashboard server port                                                                   |
 | `REFRESH_INTERVAL_MINUTES` | `15`                 | Auto-refresh interval                                                                   |
-| `LLM_PROVIDER`             | disabled             | `anthropic`, `openai`, `gemini`, `codex`, `openrouter`, `minimax`, `mistral`, or `grok` |
+| `LLM_PROVIDER`             | disabled             | Enables Leverageable Ideas + Intelligence Analysis (`anthropic`, `openai`, `gemini`, `codex`, `openrouter`, `minimax`, `mistral`, `grok`) |
 | `LLM_API_KEY`              | —                    | API key (not needed for codex)                                                          |
 | `LLM_MODEL`                | per-provider default | Override model selection                                                                |
 | `TELEGRAM_BOT_TOKEN`       | disabled             | For Telegram alerts + bot commands                                                      |
@@ -465,9 +592,10 @@ All settings are in `.env` with sensible defaults:
 | `DISCORD_CHANNEL_ID`       | —                    | Discord channel for alerts                                                              |
 | `DISCORD_GUILD_ID`         | —                    | Server ID (instant slash command registration)                                          |
 | `DISCORD_WEBHOOK_URL`      | —                    | Webhook URL (alert-only fallback, no bot needed)                                        |
+| `ADMIN_TOKEN`              | —                    | Protects Sources UI write API (`POST`/`PUT`/`DELETE` on `/api/config/sources`)          |
 
 
-Delta engine thresholds (how sensitive the system is to changes between sweeps) can be customized in `crucix.config.mjs` under the `delta.thresholds` section. The defaults are tuned to filter out noise while catching meaningful moves.
+Delta engine thresholds (how sensitive the system is to changes between sweeps) can be customized in `crucix.config.mjs` under the `delta.thresholds` section. Custom analyzed-source alert tags live under `customSignals.priorityTags`.
 
 ---
 
@@ -481,6 +609,7 @@ When running `npm run dev`:
 | `GET /`           | Jarvis HUD dashboard                            |
 | `GET /api/data`   | Current synthesized intelligence data (JSON)    |
 | `GET /api/health` | Server status, uptime, source count, LLM status |
+| `GET /api/config/sources` | List custom OSINT sources (dashboard Sources UI) |
 | `GET /events`     | SSE stream for live push updates                |
 
 
@@ -545,6 +674,23 @@ This is normal — the first sweep takes 30–60 seconds to query all 27 sources
 Expected behavior. Sources that require API keys will return structured errors if the key isn't set. The rest of the sweep continues normally. Check the Source Integrity section in the dashboard (or the server logs) to see which sources failed and why. The 3 most impactful free keys to add are `FRED_API_KEY`, `FIRMS_MAP_KEY`, and `EIA_API_KEY`.
 
 OpenSky can also return `HTTP 429` when its public hotspots are queried too aggressively. Crucix does not try to evade that limit. Instead, it surfaces the throttle/error in source health and preserves the most recent non-empty air traffic snapshot from `runs/` so the dashboard flight layer does not suddenly go blank on a throttled sweep.
+
+### LLM panels show "GENERATION FAILED" or "RETRY NEXT SWEEP"
+
+OpenRouter (or another provider) may be billing tokens successfully while Crucix cannot parse the response into JSON.
+
+1. **Pull latest code and rebuild:** `git pull && docker compose up -d --build` (not just `restart`).
+2. **Use a valid OpenRouter model slug** in `.env`, e.g. `LLM_MODEL=anthropic/claude-3.5-sonnet` or `LLM_MODEL=openrouter/auto`. Bare names like `claude-sonnet-4-6` are auto-mapped when `LLM_PROVIDER=openrouter`.
+3. **Check logs** for a parse preview:
+   ```bash
+   docker compose logs --tail=100 crucix | grep -E 'LLM Ideas|Intel Analysis'
+   ```
+4. **Inspect saved failures** (if parsing still fails): `runs/.cache/llm/parse-fail-ideas.txt` and `parse-fail-intel.txt` inside the container or host `./runs` volume.
+5. **Dry-run tests:**
+   ```bash
+   docker compose exec crucix npm run test:intel-analysis
+   node scripts/debug-llm-parse.mjs   # host-side, needs .env
+   ```
 
 ### Telegram bot not responding to commands
 
@@ -619,7 +765,6 @@ The pluggable custom-source system (`CUSTOM_SOURCES.md`) shipped with these enha
 ### Other planned items
 
 - **Discord parity for the daily brief.** The scheduled daily brief in `server.mjs` (`scheduleDailyBrief`) only sends to Telegram today. The Discord alerter already shares `buildBriefBody`; this is small-effort plumbing.
-- **Per-source health card on the dashboard.** Add a small status grid to the dashboard for custom sources, mirroring the existing source health badges, so you can see "X has not returned items for N sweeps" without tailing logs.
 - **More Firecrawl-cousin scrapers.** Firecrawl works but is paid. A drop-in module that uses a free path (e.g. `cheerio` against the raw HTML for sites with stable selectors) would let people start without the API key.
 
 ---
