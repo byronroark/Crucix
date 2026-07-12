@@ -6,6 +6,15 @@ import '../utils/env.mjs';
 
 const FIRMS_BASE = 'https://firms.modaps.eosdis.nasa.gov/api/area/csv';
 
+// Suomi NPP (VIIRS_SNPP_NRT) had a prolonged outage in mid-2026; NOAA-20/21 are reliable fallbacks.
+const DEFAULT_SOURCES = ['VIIRS_NOAA20_NRT', 'VIIRS_NOAA21_NRT', 'MODIS_NRT', 'VIIRS_SNPP_NRT'];
+
+function firmsSources() {
+  const raw = process.env.FIRMS_SOURCES || process.env.FIRMS_SOURCE || '';
+  const fromEnv = raw.split(',').map(s => s.trim()).filter(Boolean);
+  return fromEnv.length ? fromEnv : DEFAULT_SOURCES;
+}
+
 // Parse FIRMS CSV response into structured data
 function parseCSV(rawText) {
   if (!rawText || typeof rawText !== 'string') return [];
@@ -20,16 +29,17 @@ function parseCSV(rawText) {
   });
 }
 
-// Fetch fires in a bounding box
-async function fetchFires(opts = {}) {
+// Fetch fires in a bounding box from one satellite source
+async function fetchFiresFromSource(opts = {}) {
   const {
     west = -180, south = -90, east = 180, north = 90,
-    days = 1,
-    source = 'VIIRS_SNPP_NRT',
+    days = 2,
+    source,
   } = opts;
 
   const key = process.env.FIRMS_MAP_KEY;
   if (!key) return { error: 'No FIRMS_MAP_KEY' };
+  if (!source) return { error: 'No FIRMS source' };
 
   const url = `${FIRMS_BASE}/${key}/${source}/${west},${south},${east},${north}/${days}`;
   const controller = new AbortController();
@@ -40,13 +50,34 @@ async function fetchFires(opts = {}) {
       headers: { 'User-Agent': 'Crucix/1.0' },
     });
     clearTimeout(timer);
-    if (!res.ok) return { error: `HTTP ${res.status}` };
+    if (!res.ok) return { error: `HTTP ${res.status}`, source };
     const text = await res.text();
-    return parseCSV(text);
+    const rows = parseCSV(text);
+    return { source, rows };
   } catch (e) {
     clearTimeout(timer);
-    return { error: e.message };
+    return { error: e.message, source };
   }
+}
+
+// Try satellite sources in order until one returns detections
+async function fetchFires(opts = {}) {
+  const sources = opts.sources || firmsSources();
+  let lastError = null;
+
+  for (const source of sources) {
+    const result = await fetchFiresFromSource({ ...opts, source });
+    if (result.error) {
+      lastError = `${source}: ${result.error}`;
+      continue;
+    }
+    if (result.rows?.length > 0) {
+      return { fires: result.rows, source: result.source };
+    }
+  }
+
+  if (lastError) return { error: lastError };
+  return { fires: [], source: sources[sources.length - 1] };
 }
 
 // Key conflict/hotspot zones
@@ -112,10 +143,13 @@ export async function briefing() {
 
   // Fetch all hotspots in parallel
   const entries = Object.entries(HOTSPOTS);
+  const sourcesUsed = new Set();
   const rawResults = await Promise.all(
     entries.map(async ([key, box]) => {
-      const fires = await fetchFires({ ...box, days: 2 });
-      return { key, label: box.label, fires };
+      const result = await fetchFires({ ...box, days: 2 });
+      if (result.error) return { key, label: box.label, fires: result };
+      if (result.source) sourcesUsed.add(result.source);
+      return { key, label: box.label, fires: result.fires, source: result.source };
     })
   );
 
@@ -139,6 +173,7 @@ export async function briefing() {
     source: 'NASA FIRMS',
     timestamp: new Date().toISOString(),
     status: 'active',
+    firmsSources: [...sourcesUsed],
     hotspots,
     signals,
   };
