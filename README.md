@@ -219,7 +219,7 @@ To merge upstream Crucix improvements into this fork, see [FORK_MAINTENANCE.md](
 | Custom RSS / Firecrawl / JSON sources | [CUSTOM_SOURCES.md](CUSTOM_SOURCES.md) |
 | Stock/crypto watchlist + Market Intelligence | [MARKET_WATCHLIST.md](MARKET_WATCHLIST.md) |
 | LLM trade ideas + Intelligence Analysis | Set `LLM_PROVIDER` + `LLM_API_KEY` in `.env` |
-| ACLED conflict data | `ACLED_EMAIL` + `ACLED_PASSWORD` in `.env` (Research tier may need API approval) |
+| ACLED conflict data | `ACLED_EMAIL` + `ACLED_PASSWORD`; default `ACLED_ACCESS_TIER=open` (set `research` / `partner` / `enterprise` if approved) |
 
 ---
 
@@ -355,7 +355,7 @@ These three unlock the most valuable economic and satellite data. Each takes abo
 
 | Key                              | Source                       | How to Get                                                                    |
 | -------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
-| `ACLED_EMAIL` + `ACLED_PASSWORD` | Armed conflict event data    | [acleddata.com/register](https://acleddata.com/register/) — free, OAuth2      |
+| `ACLED_EMAIL` + `ACLED_PASSWORD` | Armed conflict data (tier via `ACLED_ACCESS_TIER`) | [acleddata.com/register](https://acleddata.com/register/) — free OAuth2; default **open** tier |
 | `AISSTREAM_API_KEY`              | Maritime AIS vessel tracking | [aisstream.io](https://aisstream.io/) — free                                  |
 | `ADSB_API_KEY`                   | Unfiltered flight tracking   | [RapidAPI](https://rapidapi.com/adsbexchange/api/adsbexchange-com1) — ~$10/mo |
 

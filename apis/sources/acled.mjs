@@ -27,9 +27,40 @@ const API_BASE  = 'https://acleddata.com/api/acled/read';
 const TOKEN_SKEW_MS = 60_000;           // refresh 1 min before access token expiry
 const DEFAULT_ACCESS_TTL_SEC = 86_400;    // 24h per ACLED docs
 const REFRESH_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days per ACLED docs
-// Research tier latent event data — https://acleddata.com/faq-codebook-tools
-const DEFAULT_EVENT_LAG_DAYS = 365;
-const DEFAULT_EVENT_WINDOW_DAYS = 7;
+
+/** myACLED tier presets — https://acleddata.com/myacled-faqs */
+export const ACLED_TIER_PRESETS = {
+  open: {
+    dataMode: 'aggregated',
+    lagDays: 0,
+    windowDays: 28,
+    label: 'Open',
+    description: 'Real-time aggregated weekly data (admin-1 centroids)',
+  },
+  research: {
+    dataMode: 'events',
+    lagDays: 365,
+    windowDays: 7,
+    label: 'Research',
+    description: 'Event-level data with ~12-month lag',
+  },
+  partner: {
+    dataMode: 'events',
+    lagDays: 7,
+    windowDays: 7,
+    label: 'Partner',
+    description: 'Weekly disaggregated event data',
+  },
+  enterprise: {
+    dataMode: 'events',
+    lagDays: 0,
+    windowDays: 7,
+    label: 'Enterprise',
+    description: 'Near-real-time disaggregated event data',
+  },
+};
+
+const DEFAULT_ACCESS_TIER = 'open';
 
 /** Populated on each authenticate() call — useful for test:acled --debug */
 export const lastAuthDiagnostics = { attempts: [] };
@@ -329,30 +360,55 @@ function parsePositiveInt(envVal, fallback) {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-/** Research-tier default: 12-month lag. Partner/Enterprise: set ACLED_EVENT_LAG_DAYS=7 or 0. */
-export function getAcledEventLagConfig() {
+function normalizeAcledTier(raw) {
+  const tier = String(raw ?? DEFAULT_ACCESS_TIER).trim().toLowerCase();
+  return ACLED_TIER_PRESETS[tier] ? tier : DEFAULT_ACCESS_TIER;
+}
+
+/** Resolve myACLED tier + lag/window (env overrides tier preset). */
+export function getAcledTierConfig() {
+  const tier = normalizeAcledTier(process.env.ACLED_ACCESS_TIER);
+  const preset = ACLED_TIER_PRESETS[tier];
+  const lagEnv = process.env.ACLED_EVENT_LAG_DAYS;
+  const windowEnv = process.env.ACLED_EVENT_WINDOW_DAYS;
   return {
-    lagDays: parsePositiveInt(process.env.ACLED_EVENT_LAG_DAYS, DEFAULT_EVENT_LAG_DAYS),
-    windowDays: parsePositiveInt(process.env.ACLED_EVENT_WINDOW_DAYS, DEFAULT_EVENT_WINDOW_DAYS),
+    tier,
+    dataMode: preset.dataMode,
+    label: preset.label,
+    description: preset.description,
+    lagDays: lagEnv !== undefined && String(lagEnv).trim() !== ''
+      ? parsePositiveInt(lagEnv, preset.lagDays)
+      : preset.lagDays,
+    windowDays: windowEnv !== undefined && String(windowEnv).trim() !== ''
+      ? parsePositiveInt(windowEnv, preset.windowDays)
+      : preset.windowDays,
   };
 }
 
-/** Rolling event window ending `lagDays` ago (not ACLED Partner "briefings" product). */
-export function getAcledEventPeriod() {
-  const { lagDays, windowDays } = getAcledEventLagConfig();
+/** @deprecated alias — use getAcledTierConfig() */
+export function getAcledEventLagConfig() {
+  const { lagDays, windowDays } = getAcledTierConfig();
+  return { lagDays, windowDays };
+}
+
+/** Rolling window ending `lagDays` ago (not ACLED Partner "briefings" product). */
+export function getAcledEventPeriod(config = getAcledTierConfig()) {
+  const { lagDays, windowDays } = config;
   const end = daysAgo(lagDays);
   const start = daysAgo(lagDays + windowDays);
-  return { start, end, lagDays, windowDays };
+  return { start, end, lagDays, windowDays, tier: config.tier, dataMode: config.dataMode };
 }
 
 function acledAccessDeniedHint(status) {
   if (status !== 403) return '';
-  return '\n→ HTTP 403 usually means account tier or API access:\n'
-    + '  1. Gmail accounts often get Open tier (no API) — use an institutional domain email\n'
-    + '  2. Accept Terms of Use and complete profile at acleddata.com\n'
-    + '  3. Request API + Research tier from access@acleddata.com\n'
-    + '  4. Research event data has ~12-month lag — ACLED_EVENT_LAG_DAYS=365 (Crucix default)\n'
-    + '     Partner/Enterprise near-real-time: set ACLED_EVENT_LAG_DAYS=7 or 0';
+  const tier = getAcledTierConfig().tier;
+  return '\n→ HTTP 403 usually means account tier or API access mismatch:\n'
+    + '  1. Set ACLED_ACCESS_TIER to match your myACLED level (open, research, partner, enterprise)\n'
+    + '  2. Open tier: aggregated weekly data — default ACLED_ACCESS_TIER=open, lag 0, window 28d\n'
+    + '  3. Research tier: event data ~12-month lag — ACLED_ACCESS_TIER=research (or lag 365)\n'
+    + '  4. Partner/Enterprise: near-real-time events — ACLED_ACCESS_TIER=partner or enterprise\n'
+    + '  5. Accept Terms of Use and complete profile at acleddata.com\n'
+    + `  Current config: ACLED_ACCESS_TIER=${tier}`;
 }
 
 function cloudflareHint(raw) {
@@ -516,9 +572,9 @@ function apiAccessDeniedError(detail = '') {
   const email = cleanEnvToken(process.env.ACLED_EMAIL);
   return {
     apiAccessDenied: true,
-    error: 'ACLED OAuth is valid but the event API returned HTTP 403 (API access not enabled for this account yet).'
+    error: 'ACLED OAuth is valid but the data API returned HTTP 403 (tier or API access mismatch).'
       + (email ? ` Account: ${email}.` : '')
-      + ' Contact access@acleddata.com to enable Research-tier API access.'
+      + ` Set ACLED_ACCESS_TIER to your myACLED level (current: ${getAcledTierConfig().tier}).`
       + acledAccessDeniedHint(403)
       + (detail ? `\n${detail}` : ''),
   };
@@ -918,8 +974,9 @@ export const EVENT_TYPES = [
   'Strategic developments',
 ];
 
-// Query conflict events with flexible filters
+// Query conflict data with flexible filters (events or aggregated, per tier)
 export async function getEvents(opts = {}) {
+  const tierConfig = getAcledTierConfig();
   const {
     limit = 500,
     eventDateStart,
@@ -927,6 +984,7 @@ export async function getEvents(opts = {}) {
     eventType,
     country,
     region,
+    dataMode = tierConfig.dataMode,
   } = opts;
 
   let session = await authenticate();
@@ -934,8 +992,13 @@ export async function getEvents(opts = {}) {
 
   const params = new URLSearchParams({ _format: 'json', limit: String(limit) });
   if (eventDateStart && eventDateEnd) {
-    params.set('event_date', `${eventDateStart}|${eventDateEnd}`);
-    params.set('event_date_where', 'BETWEEN');
+    if (dataMode === 'aggregated') {
+      params.set('week', `${eventDateStart}|${eventDateEnd}`);
+      params.set('week_where', 'BETWEEN');
+    } else {
+      params.set('event_date', `${eventDateStart}|${eventDateEnd}`);
+      params.set('event_date_where', 'BETWEEN');
+    }
   }
   if (eventType) params.set('event_type', eventType);
   if (country) params.set('country', country);
@@ -1009,6 +1072,109 @@ function groupBy(events, field) {
   return map;
 }
 
+function isAggregatedRow(row) {
+  return row != null
+    && row.week != null
+    && row.events != null
+    && (row.admin1 != null || row['admin 1'] != null || row.admin_1 != null);
+}
+
+function groupByAggregated(rows, field) {
+  const map = {};
+  for (const r of rows) {
+    const key = r[field] || r[field === 'admin1' ? 'admin 1' : field] || 'Unknown';
+    if (!map[key]) map[key] = { count: 0, fatalities: 0 };
+    map[key].count += parseInt(r.events, 10) || 0;
+    map[key].fatalities += parseInt(r.fatalities, 10) || 0;
+  }
+  return map;
+}
+
+function summarizeEventRows(events, period) {
+  const totalFatalities = events.reduce(
+    (sum, e) => sum + (parseInt(e.fatalities, 10) || 0), 0
+  );
+  const byRegion = groupBy(events, 'region');
+  const byType = groupBy(events, 'event_type');
+  const byCountry = groupBy(events, 'country');
+  const topCountries = Object.entries(byCountry)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 10)
+    .reduce((obj, [k, v]) => { obj[k] = v; return obj; }, {});
+  const deadliestEvents = events
+    .filter(e => parseInt(e.fatalities, 10) > 0)
+    .sort((a, b) => (parseInt(b.fatalities, 10) || 0) - (parseInt(a.fatalities, 10) || 0))
+    .slice(0, 15)
+    .map(e => ({
+      date: e.event_date,
+      type: e.event_type,
+      subType: e.sub_event_type,
+      country: e.country,
+      location: e.location,
+      fatalities: parseInt(e.fatalities, 10) || 0,
+      lat: parseFloat(e.latitude) || null,
+      lon: parseFloat(e.longitude) || null,
+      notes: e.notes?.slice(0, 200),
+    }));
+  return {
+    totalEvents: events.length,
+    totalFatalities,
+    byRegion,
+    byType,
+    topCountries,
+    deadliestEvents,
+    period,
+    dataMode: 'events',
+  };
+}
+
+function summarizeAggregatedRows(rows, period) {
+  const totalEvents = rows.reduce((s, r) => s + (parseInt(r.events, 10) || 0), 0);
+  const totalFatalities = rows.reduce((s, r) => s + (parseInt(r.fatalities, 10) || 0), 0);
+  const byRegion = groupByAggregated(rows, 'region');
+  const byType = groupByAggregated(rows, 'event_type');
+  const byCountry = groupByAggregated(rows, 'country');
+  const topCountries = Object.entries(byCountry)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 10)
+    .reduce((obj, [k, v]) => { obj[k] = v; return obj; }, {});
+  const deadliestEvents = [...rows]
+    .sort((a, b) => {
+      const fatDiff = (parseInt(b.fatalities, 10) || 0) - (parseInt(a.fatalities, 10) || 0);
+      if (fatDiff !== 0) return fatDiff;
+      return (parseInt(b.events, 10) || 0) - (parseInt(a.events, 10) || 0);
+    })
+    .slice(0, 15)
+    .map(r => {
+      const admin1 = r.admin1 || r['admin 1'] || r.admin_1 || '';
+      const events = parseInt(r.events, 10) || 0;
+      const fatalities = parseInt(r.fatalities, 10) || 0;
+      return {
+        date: r.week,
+        type: r.event_type,
+        subType: r.sub_event_type,
+        country: r.country,
+        location: [admin1, r.country].filter(Boolean).join(', '),
+        fatalities,
+        events,
+        lat: parseFloat(r.centroid_latitude) || null,
+        lon: parseFloat(r.centroid_longitude) || null,
+        aggregated: true,
+        notes: events > 1 ? `${events} events (aggregated)` : undefined,
+      };
+    });
+  return {
+    totalEvents,
+    totalFatalities,
+    byRegion,
+    byType,
+    topCountries,
+    deadliestEvents,
+    period,
+    dataMode: 'aggregated',
+  };
+}
+
 // Event summary — rolling window via /api/acled/read (not ACLED Partner briefings)
 export async function briefing() {
   if (!hasAcledConfig()) {
@@ -1020,65 +1186,46 @@ export async function briefing() {
     };
   }
 
-  const { start, end, lagDays, windowDays } = getAcledEventPeriod();
+  const tierConfig = getAcledTierConfig();
+  const period = getAcledEventPeriod(tierConfig);
 
   const data = await getEvents({
-    eventDateStart: start,
-    eventDateEnd: end,
+    eventDateStart: period.start,
+    eventDateEnd: period.end,
     limit: 2000,
+    dataMode: tierConfig.dataMode,
   });
 
   if (data?.error) {
-    return { source: 'ACLED', timestamp: new Date().toISOString(), error: data.error };
+    return {
+      source: 'ACLED',
+      timestamp: new Date().toISOString(),
+      accessTier: tierConfig.tier,
+      dataMode: tierConfig.dataMode,
+      error: data.error,
+    };
   }
 
-  let events = data?.data || [];
+  let rows = data?.data || [];
 
-  events = events.map(e => ({
-    ...e,
-    lat: parseFloat(e.latitude) || null,
-    lon: parseFloat(e.longitude) || null,
-  }));
-
-  const totalFatalities = events.reduce(
-    (sum, e) => sum + (parseInt(e.fatalities, 10) || 0), 0
-  );
-
-  const byRegion  = groupBy(events, 'region');
-  const byType    = groupBy(events, 'event_type');
-  const byCountry = groupBy(events, 'country');
-
-  const topCountries = Object.entries(byCountry)
-    .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 10)
-    .reduce((obj, [k, v]) => { obj[k] = v; return obj; }, {});
-
-  const deadliestEvents = events
-    .filter(e => parseInt(e.fatalities, 10) > 0)
-    .sort((a, b) => (parseInt(b.fatalities, 10) || 0) - (parseInt(a.fatalities, 10) || 0))
-    .slice(0, 15)
-    .map(e => ({
-      date:       e.event_date,
-      type:       e.event_type,
-      subType:    e.sub_event_type,
-      country:    e.country,
-      location:   e.location,
-      fatalities: parseInt(e.fatalities, 10) || 0,
-      lat:        parseFloat(e.latitude) || null,
-      lon:        parseFloat(e.longitude) || null,
-      notes:      e.notes?.slice(0, 200),
+  if (tierConfig.dataMode === 'events') {
+    rows = rows.map(e => ({
+      ...e,
+      lat: parseFloat(e.latitude) || null,
+      lon: parseFloat(e.longitude) || null,
     }));
+  }
+
+  const summary = rows.length && isAggregatedRow(rows[0])
+    ? summarizeAggregatedRows(rows, period)
+    : summarizeEventRows(rows, period);
 
   return {
     source: 'ACLED',
     timestamp: new Date().toISOString(),
-    period: { start, end, lagDays, windowDays },
-    totalEvents: events.length,
-    totalFatalities,
-    byRegion,
-    byType,
-    topCountries,
-    deadliestEvents,
+    accessTier: tierConfig.tier,
+    accessLabel: tierConfig.label,
+    ...summary,
   };
 }
 
