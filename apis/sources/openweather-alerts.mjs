@@ -32,7 +32,10 @@ export async function briefing() {
 
   const states = config.weatherAlerts?.severeRegions
     || parseRegionEnv(process.env.SEVERE_WEATHER_ALERT_REGIONS, 'FL,GA,AL');
-  const anchors = anchorsForStates(states);
+  const anchors = anchorsForStates(states, {
+    globalAnchor: config.weatherAlerts?.anchor,
+    anchorOverrides: config.weatherAlerts?.anchorOverrides,
+  });
   const byId = new Map();
 
   for (const anchor of anchors) {

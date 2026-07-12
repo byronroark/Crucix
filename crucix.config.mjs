@@ -1,7 +1,7 @@
 // Crucix Configuration — all settings with env var overrides
 
 import "./apis/utils/env.mjs"; // Load .env first
-import { parseRegionEnv } from './lib/weather/region-presets.mjs';
+import { parseRegionEnv, parseAnchorOverride, anchorOverridesFromEnv } from './lib/weather/region-presets.mjs';
 
 export default {
   port: parseInt(process.env.PORT) || 3117,
@@ -217,6 +217,10 @@ export default {
     openWeatherApiKey: process.env.OPENWEATHER_API_KEY || process.env.WEATHER_API_KEY || null,
     severeRegions: parseRegionEnv(process.env.SEVERE_WEATHER_ALERT_REGIONS, 'FL,GA,AL'),
     maxMapAlerts: parseInt(process.env.WEATHER_MAX_MAP_ALERTS, 10) || 25,
+    // Single-state anchor override: OPENWEATHER_ANCHOR=lat,lon,name
+    anchor: parseAnchorOverride(process.env.OPENWEATHER_ANCHOR),
+    // Per-state overrides: OPENWEATHER_ANCHOR_FL=lat,lon,name
+    anchorOverrides: anchorOverridesFromEnv(),
   },
 
   tornadoReports: {
