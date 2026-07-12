@@ -615,6 +615,140 @@ let lowPerfMode = localStorage.getItem('crucix_low_perf') === 'true';
 let isFlat = shouldStartFlat();
 let currentRegion = 'world';
 let flatSvg, flatProjection, flatPath, flatG, flatZoom, flatW, flatH;
+let _globeBasePoints = [];
+let _flatMarkerRecords = [];
+let _flatZoomK = 1;
+
+const SPREAD_ZOOM_THRESHOLD = 2;
+const SPREAD_DEG_BASE = 0.12;
+const SPREAD_PX_BASE = 16;
+const SPREADABLE_TYPES = new Set(['news', 'custom', 'gdelt', 'weather', 'earthquake', 'osint', 'health', 'thermal', 'sdr', 'radiation']);
+
+function shouldSpreadMarkers(zoomFactor) {
+  return zoomFactor >= SPREAD_ZOOM_THRESHOLD;
+}
+
+function getGlobeZoomFactor() {
+  if (!globe) return 1;
+  const alt = globe.pointOfView()?.altitude || regionPOV.world.altitude;
+  return regionPOV.world.altitude / Math.max(alt, 0.15);
+}
+
+function pushMapPoint(arr, p) {
+  const lng = p.lng ?? p.lon;
+  const pt = { ...p, lng };
+  if (SPREADABLE_TYPES.has(pt.type)) {
+    pt.origLat = p.lat;
+    pt.origLng = lng;
+  }
+  arr.push(pt);
+  return pt;
+}
+
+function spreadCellDeg(zoomFactor) {
+  return Math.max(0.04, 0.45 / zoomFactor);
+}
+
+function spreadMarkerClusters(markers, zoomFactor) {
+  if (!shouldSpreadMarkers(zoomFactor)) {
+    return markers.map(m => ({
+      ...m,
+      lat: m.origLat ?? m.lat,
+      lng: m.origLng ?? m.lng ?? m.lon,
+    }));
+  }
+
+  const cellDeg = spreadCellDeg(zoomFactor);
+  const spreadDeg = SPREAD_DEG_BASE * (zoomFactor / SPREAD_ZOOM_THRESHOLD);
+  const buckets = new Map();
+  const result = markers.map((m, idx) => ({ ...m, _idx: idx }));
+
+  for (const m of result) {
+    if (!SPREADABLE_TYPES.has(m.type)) continue;
+    const lat = m.origLat ?? m.lat;
+    const lng = m.origLng ?? m.lng ?? m.lon;
+    const key = `${m.type}|${Math.round(lat / cellDeg)}|${Math.round(lng / cellDeg)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(m);
+  }
+
+  for (const group of buckets.values()) {
+    if (group.length < 2) continue;
+    const centroidLat = group.reduce((s, m) => s + (m.origLat ?? m.lat), 0) / group.length;
+    const centroidLng = group.reduce((s, m) => s + (m.origLng ?? m.lng ?? m.lon), 0) / group.length;
+    const cosLat = Math.max(0.2, Math.cos(centroidLat * Math.PI / 180));
+    const r = spreadDeg * (1 + Math.min(group.length - 2, 6) * 0.08);
+    group.forEach((m, i) => {
+      const angle = (2 * Math.PI * i) / group.length;
+      m.lat = centroidLat + (r * Math.cos(angle)) / 111;
+      m.lng = centroidLng + (r * Math.sin(angle)) / (111 * cosLat);
+    });
+  }
+
+  return result.map(({ _idx, ...m }) => m);
+}
+
+function filterGlobePointsByPriority(points, alt) {
+  if (alt > 2.0) return points.filter(p => (p.priority || 3) <= 1);
+  if (alt > 1.2) return points.filter(p => (p.priority || 3) <= 2);
+  return points;
+}
+
+function applyGlobeMarkerSpread() {
+  if (!globe || !_globeBasePoints.length) return;
+  const alt = globe.pointOfView().altitude;
+  const spread = spreadMarkerClusters(_globeBasePoints, getGlobeZoomFactor());
+  globe.pointsData(filterGlobePointsByPriority(spread, alt));
+}
+
+function updateFlatMarkerSpread(k) {
+  _flatZoomK = k;
+  if (!_flatMarkerRecords.length || !flatProjection) return;
+
+  const shouldSpread = shouldSpreadMarkers(k);
+  const spreadPx = SPREAD_PX_BASE * (k / SPREAD_ZOOM_THRESHOLD);
+  const cellPx = Math.max(8, 28 / k);
+  const spreadable = [];
+
+  _flatMarkerRecords.forEach((rec, idx) => {
+    if (!SPREADABLE_TYPES.has(rec.type)) return;
+    const [bx, by] = flatProjection([rec.origLon, rec.origLat]);
+    if (bx == null || by == null) return;
+    spreadable.push({ idx, bx, by, type: rec.type });
+  });
+
+  const buckets = new Map();
+  spreadable.forEach(s => {
+    const key = `${s.type}|${Math.round(s.bx / cellPx)}|${Math.round(s.by / cellPx)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(s);
+  });
+
+  const offsets = new Map();
+  if (shouldSpread) {
+    for (const group of buckets.values()) {
+      if (group.length < 2) continue;
+      const cx = group.reduce((s, g) => s + g.bx, 0) / group.length;
+      const cy = group.reduce((s, g) => s + g.by, 0) / group.length;
+      const r = spreadPx * (1 + Math.min(group.length - 2, 6) * 0.1);
+      group.forEach((g, i) => {
+        const angle = (2 * Math.PI * i) / group.length;
+        offsets.set(g.idx, {
+          dx: cx + r * Math.cos(angle) - g.bx,
+          dy: cy + r * Math.sin(angle) - g.by,
+        });
+      });
+    }
+  }
+
+  _flatMarkerRecords.forEach((rec, idx) => {
+    const [bx, by] = flatProjection([rec.origLon, rec.origLat]);
+    if (bx == null || by == null) return;
+    const off = offsets.get(idx) || { dx: 0, dy: 0 };
+    rec.g.attr('transform', `translate(${bx + off.dx},${by + off.dy})`);
+  });
+}
+
 const signalGuideItems = [
   {
     term:'No Callsign',
@@ -1043,7 +1177,7 @@ function initGlobe(){
     .pointRadius(d => d.size || 0.3)
     .pointColor(d => d.color)
     .pointLabel(d => `<b>${d.popHead||''}</b><br><span style="opacity:0.7">${d.popMeta||''}</span>`)
-    .onPointClick((pt, ev) => { showPopup(ev, pt.popHead, pt.popText, pt.popMeta, pt.lat, pt.lng, pt.alt); })
+    .onPointClick((pt, ev) => { showPopup(ev, pt.popHead, pt.popText, pt.popMeta, pt.origLat ?? pt.lat, pt.origLng ?? pt.lng, pt.alt); })
     .onPointHover(pt => { document.getElementById('globeViz').style.cursor = pt ? 'pointer' : 'grab'; })
     // Arcs layer (flight corridors)
     .arcColor(d => d.color)
@@ -1160,7 +1294,7 @@ function plotMarkers(){
   // === Thermal/fire (red) ===
   if (layerVisible('thermal')) D.thermal.forEach(t=>{
     t.fires.forEach(f=>{
-      points.push({
+      pushMapPoint(points, {
         lat:f.lat, lng:f.lon, size:0.12+Math.min(f.frp/200,0.3), alt:0.008,
         color:'rgba(255,95,99,0.7)', type:'thermal', priority:3,
         popHead:'Thermal Detection', popMeta:'FIRMS Satellite',
@@ -1194,7 +1328,7 @@ function plotMarkers(){
   // === SDR receivers (cyan) ===
   if (layerVisible('sdr')) D.sdr.zones.forEach(z=>{
     z.receivers.forEach(r=>{
-      points.push({
+      pushMapPoint(points, {
         lat:r.lat, lng:r.lon, size:0.15, alt:0.005,
         color:'rgba(68,204,255,0.6)', type:'sdr', priority:3,
         popHead:'SDR Receiver', popMeta:'KiwiSDR Network',
@@ -1207,7 +1341,7 @@ function plotMarkers(){
   const osintGeo=[{lat:45,lon:41,idx:0},{lat:48,lon:37,idx:1},{lat:48.5,lon:37.5,idx:2},{lat:45,lon:40.2,idx:3},{lat:50.6,lon:36.6,idx:5},{lat:48.5,lon:35,idx:6}];
   if (layerVisible('osint')) osintGeo.forEach(o=>{
     const post=D.tg.urgent[o.idx]; if(!post) return;
-    points.push({
+    pushMapPoint(points, {
       lat:o.lat, lng:o.lon, size:0.3, alt:0.018,
       color:'rgba(255,184,76,0.8)', type:'osint', priority:2,
       popHead:(post.channel||'').toUpperCase(), popMeta:`${post.views?.toLocaleString()||'?'} views`,
@@ -1219,7 +1353,7 @@ function plotMarkers(){
   const whoGeo=[{lat:0.3,lon:32.6},{lat:-6.2,lon:106.8},{lat:-4.3,lon:15.3},{lat:35,lon:105},{lat:12.5,lon:105},{lat:35,lon:105},{lat:28,lon:84},{lat:24,lon:45},{lat:30,lon:70},{lat:-0.8,lon:11.6}];
   if (layerVisible('health')) D.who.slice(0,10).forEach((w,i)=>{
     const c=whoGeo[i]; if(!c) return;
-    points.push({
+    pushMapPoint(points, {
       lat:c.lat, lng:c.lon, size:0.25, alt:0.01,
       color:'rgba(105,240,174,0.7)', type:'health', priority:2,
       popHead:w.title, popMeta:'WHO Outbreak', popText:w.summary||''
@@ -1228,7 +1362,7 @@ function plotMarkers(){
 
   // === News markers (light blue) ===
   if (layerVisible('news')) (D.news||[]).forEach(n=>{
-    points.push({
+    pushMapPoint(points, {
       lat:n.lat, lng:n.lon, size:0.2, alt:0.008,
       color:'rgba(129,212,250,0.7)', type:'news', priority:3,
       popHead:n.source+' NEWS', popMeta:n.region+' · '+getAge(n.date),
@@ -1238,7 +1372,7 @@ function plotMarkers(){
 
   // === Custom OSINT sources (purple) ===
   if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{
-    points.push({
+    pushMapPoint(points, {
       lat:c.lat, lng:c.lon, size:0.22, alt:0.012,
       color:'rgba(206,147,216,0.8)', type:'custom', priority:3,
       popHead:(c.source||'CUSTOM').toUpperCase(), popMeta:`${c.region||'Custom'} · ${getAge(c.date)}`,
@@ -1250,7 +1384,7 @@ function plotMarkers(){
   if (layerVisible('weather')) (D.weatherAlerts?.dots || D.noaa?.alerts || []).forEach(a=>{
     const src = a.sourceLabel || 'NWS';
     const meta = a.subtype === 'tornado' ? `${src} · ${a.severity || 'Tornado'}` : `${src} · ${a.severity || ''}`;
-    points.push({
+    pushMapPoint(points, {
       lat:a.lat, lng:a.lon, size: a.subtype === 'hurricane' ? 0.32 : 0.22, alt:0.01,
       color:'rgba(255,152,0,0.8)', type:'weather', priority: a.priority || 2,
       popHead:a.event, popMeta: meta,
@@ -1260,7 +1394,7 @@ function plotMarkers(){
 
   // === USGS earthquakes (hot pink) ===
   if (layerVisible('earthquake')) (D.earthquakes?.events||[]).forEach(e=>{
-    points.push({
+    pushMapPoint(points, {
       lat:e.lat, lng:e.lon, size:0.18+Math.min((e.magnitude||4)/10,0.25), alt:0.012,
       color:'rgba(255,77,166,0.85)', type:'earthquake', priority: e.priority || 2,
       popHead:`M${e.magnitude} Earthquake`, popMeta:'USGS · '+e.place,
@@ -1270,7 +1404,7 @@ function plotMarkers(){
 
   // === EPA RadNet stations (lime green) ===
   if (layerVisible('radiation')) (D.epa?.stations||[]).forEach(s=>{
-    points.push({
+    pushMapPoint(points, {
       lat:s.lat, lng:s.lon, size:0.18, alt:0.006,
       color:'rgba(205,220,57,0.7)', type:'radiation', priority:3,
       popHead:'RadNet: '+s.location, popMeta:'EPA Radiation Monitor',
@@ -1291,7 +1425,7 @@ function plotMarkers(){
 
   // === GDELT geo events (steel blue) ===
   if (layerVisible('gdelt')) (D.gdelt?.geoPoints||[]).forEach(g=>{
-    points.push({
+    pushMapPoint(points, {
       lat:g.lat, lng:g.lon, size:0.15+Math.min(g.count/50,0.2), alt:0.007,
       color:'rgba(100,149,237,0.6)', type:'gdelt', priority:3,
       popHead:'GDELT Event', popMeta:g.count+' reports',
@@ -1299,8 +1433,8 @@ function plotMarkers(){
     });
   });
 
-  // Set points on globe
-  globe.pointsData(points);
+  _globeBasePoints = points.map(p => ({ ...p }));
+  applyGlobeMarkerSpread();
   globe.labelsData(labels);
 
   // === ACLED CONFLICT EVENTS (pulsing rings) ===
@@ -1381,14 +1515,7 @@ function plotMarkers(){
     // Scale arc strokes with zoom
     globe.arcStroke(d => (d.stroke || 0.4) * Math.max(0.5, Math.min(1.5, 1.2 / alt)));
     globe.arcDashAnimateTime(lowPerfMode ? 0 : 2000);
-    // Priority-based point visibility: hide low-priority markers when zoomed out
-    if(alt > 2.0){
-      globe.pointsData(points.filter(p => (p.priority||3) <= 1));
-    } else if(alt > 1.2){
-      globe.pointsData(points.filter(p => (p.priority||3) <= 2));
-    } else {
-      globe.pointsData(points);
-    }
+    applyGlobeMarkerSpread();
   };
   if(typeof globe.onZoom==='function') globe.onZoom(onGlobeZoom);
 }
@@ -1545,6 +1672,7 @@ function initFlatMap(){
     flatG.selectAll('.marker-circle').attr('r',function(){return +this.dataset.baseR/Math.sqrt(k)});
     flatG.selectAll('.marker-label').style('font-size',Math.max(7,9/Math.sqrt(k))+'px')
       .style('display',k>=2.5?'block':'none');
+    updateFlatMarkerSpread(k);
   });
   flatSvg.call(flatZoom);
   drawFlatMap();
@@ -1562,13 +1690,17 @@ function drawFlatMap(){
 }
 
 function plotFlatMarkers(){
+  _flatMarkerRecords = [];
   const mg=flatG.append('g').attr('class','markers');
   const proj=flatProjection;
-  const addPt=(lat,lon,r,fill,stroke,onClick,priority)=>{
+  const addPt=(lat,lon,r,fill,stroke,onClick,priority,type)=>{
+    const origLat=lat, origLon=lon;
     const[x,y]=proj([lon,lat]);if(!x||!y)return null;
-    const g=mg.append('g').attr('transform',`translate(${x},${y})`).style('cursor','pointer').attr('data-priority',priority||3);
+    const g=mg.append('g').attr('transform',`translate(${x},${y})`).style('cursor','pointer')
+      .attr('data-priority',priority||3).attr('data-type',type||'');
     if(onClick) g.on('click',ev=>{ev.stopPropagation();onClick(ev)});
     g.append('circle').attr('class','marker-circle').attr('r',r).attr('data-base-r',r).attr('fill',fill).attr('stroke',stroke).attr('stroke-width',0.8);
+    _flatMarkerRecords.push({ g, origLat, origLon, type: type || '' });
     return g;
   };
   // Air
@@ -1584,7 +1716,7 @@ function plotFlatMarkers(){
   // Thermal
   if (layerVisible('thermal')) D.thermal.forEach(t=>t.fires.forEach(f=>{
     addPt(f.lat,f.lon,2+Math.min(f.frp/50,5),'rgba(255,95,99,0.6)','rgba(255,95,99,0.2)',
-      ev=>showPopup(ev,'Thermal',`${t.region}<br>FRP: ${f.frp.toFixed(1)} MW`,'FIRMS'),3);
+      ev=>showPopup(ev,'Thermal',`${t.region}<br>FRP: ${f.frp.toFixed(1)} MW`,'FIRMS'),3,'thermal');
   }));
   // Chokepoints
   if (layerVisible('maritime')) D.chokepoints.forEach(cp=>{
@@ -1598,35 +1730,35 @@ function plotFlatMarkers(){
   const nukeCoords=[{lat:47.5,lon:34.6},{lat:51.4,lon:30.1},{lat:28.8,lon:50.9},{lat:39.8,lon:125.8},{lat:37.4,lon:141},{lat:31.0,lon:35.1}];
   if (layerVisible('nuke')) D.nuke.forEach((n,i)=>{const c=nukeCoords[i];if(!c)return;addPt(c.lat,c.lon,4,'rgba(255,224,130,0.7)','rgba(255,224,130,0.3)',ev=>showPopup(ev,n.site,`CPM: ${n.cpm?.toFixed(1)||'--'}`,'Radiation'),2)});
   // SDR
-  if (layerVisible('sdr')) D.sdr.zones.forEach(z=>z.receivers.forEach(r=>{addPt(r.lat,r.lon,2.5,'rgba(68,204,255,0.5)','rgba(68,204,255,0.2)',ev=>showPopup(ev,'SDR',`${r.name}<br>${z.region}`,'KiwiSDR'),3)}));
+  if (layerVisible('sdr')) D.sdr.zones.forEach(z=>z.receivers.forEach(r=>{addPt(r.lat,r.lon,2.5,'rgba(68,204,255,0.5)','rgba(68,204,255,0.2)',ev=>showPopup(ev,'SDR',`${r.name}<br>${z.region}`,'KiwiSDR'),3,'sdr')}));
   // OSINT
   const osintGeo=[{lat:45,lon:41,idx:0},{lat:48,lon:37,idx:1},{lat:48.5,lon:37.5,idx:2},{lat:45,lon:40.2,idx:3},{lat:50.6,lon:36.6,idx:5},{lat:48.5,lon:35,idx:6}];
-  if (layerVisible('osint')) osintGeo.forEach(o=>{const p=D.tg.urgent[o.idx];if(!p)return;addPt(o.lat,o.lon,4,'rgba(255,184,76,0.7)','rgba(255,184,76,0.3)',ev=>showPopup(ev,(p.channel||'').toUpperCase(),cleanText(p.text?.substring(0,200)||''),`${p.views||'?'} views`),2)});
+  if (layerVisible('osint')) osintGeo.forEach(o=>{const p=D.tg.urgent[o.idx];if(!p)return;addPt(o.lat,o.lon,4,'rgba(255,184,76,0.7)','rgba(255,184,76,0.3)',ev=>showPopup(ev,(p.channel||'').toUpperCase(),cleanText(p.text?.substring(0,200)||''),`${p.views||'?'} views`),2,'osint')});
   // WHO
   const whoGeo=[{lat:0.3,lon:32.6},{lat:-6.2,lon:106.8},{lat:-4.3,lon:15.3},{lat:35,lon:105},{lat:12.5,lon:105},{lat:35,lon:105},{lat:28,lon:84},{lat:24,lon:45},{lat:30,lon:70},{lat:-0.8,lon:11.6}];
-  if (layerVisible('health')) D.who.slice(0,10).forEach((w,i)=>{const c=whoGeo[i];if(!c)return;addPt(c.lat,c.lon,3.5,'rgba(105,240,174,0.6)','rgba(105,240,174,0.2)',ev=>showPopup(ev,w.title,w.summary||'','WHO'),2)});
+  if (layerVisible('health')) D.who.slice(0,10).forEach((w,i)=>{const c=whoGeo[i];if(!c)return;addPt(c.lat,c.lon,3.5,'rgba(105,240,174,0.6)','rgba(105,240,174,0.2)',ev=>showPopup(ev,w.title,w.summary||'','WHO'),2,'health')});
   // News
-  if (layerVisible('news')) (D.news||[]).forEach(n=>{addPt(n.lat,n.lon,3,'rgba(129,212,250,0.6)','rgba(129,212,250,0.2)',ev=>showPopup(ev,n.source+' NEWS',cleanText(n.title),n.region),3)});
+  if (layerVisible('news')) (D.news||[]).forEach(n=>{addPt(n.lat,n.lon,3,'rgba(129,212,250,0.6)','rgba(129,212,250,0.2)',ev=>showPopup(ev,n.source+' NEWS',cleanText(n.title),n.region),3,'news')});
   // Custom OSINT sources
-  if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{addPt(c.lat,c.lon,3,'rgba(206,147,216,0.7)','rgba(206,147,216,0.25)',ev=>showPopup(ev,(c.source||'CUSTOM').toUpperCase()+' · CUSTOM',cleanText(c.title),c.region||'Custom'),3)});
+  if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{addPt(c.lat,c.lon,3,'rgba(206,147,216,0.7)','rgba(206,147,216,0.25)',ev=>showPopup(ev,(c.source||'CUSTOM').toUpperCase()+' · CUSTOM',cleanText(c.title),c.region||'Custom'),3,'custom')});
   // Unified weather dots
   if (layerVisible('weather')) (D.weatherAlerts?.dots || D.noaa?.alerts || []).forEach(a=>{
     const src = a.sourceLabel || 'NWS';
-    addPt(a.lat,a.lon,4,'rgba(255,152,0,0.7)','rgba(255,152,0,0.3)',ev=>showPopup(ev,a.event,a.headline||'',src), a.priority || 2);
+    addPt(a.lat,a.lon,4,'rgba(255,152,0,0.7)','rgba(255,152,0,0.3)',ev=>showPopup(ev,a.event,a.headline||'',src), a.priority || 2,'weather');
   });
   // Earthquakes
   if (layerVisible('earthquake')) (D.earthquakes?.events||[]).forEach(e=>{
-    addPt(e.lat,e.lon,3.5+Math.min((e.magnitude||4)/2,4),'rgba(255,77,166,0.75)','rgba(255,77,166,0.25)',ev=>showPopup(ev,`M${e.magnitude} Earthquake`,e.place||'','USGS'), e.priority || 2);
+    addPt(e.lat,e.lon,3.5+Math.min((e.magnitude||4)/2,4),'rgba(255,77,166,0.75)','rgba(255,77,166,0.25)',ev=>showPopup(ev,`M${e.magnitude} Earthquake`,e.place||'','USGS'), e.priority || 2,'earthquake');
   });
   // EPA RadNet
-  if (layerVisible('radiation')) (D.epa?.stations||[]).forEach(s=>{addPt(s.lat,s.lon,3,'rgba(205,220,57,0.6)','rgba(205,220,57,0.2)',ev=>showPopup(ev,'RadNet: '+s.location,`${s.analyte||'--'}: ${s.result||'--'} ${s.unit||''}`,'EPA'),3)});
+  if (layerVisible('radiation')) (D.epa?.stations||[]).forEach(s=>{addPt(s.lat,s.lon,3,'rgba(205,220,57,0.6)','rgba(205,220,57,0.2)',ev=>showPopup(ev,'RadNet: '+s.location,`${s.analyte||'--'}: ${s.result||'--'} ${s.unit||''}`,'EPA'),3,'radiation')});
   // Space stations
   if (layerVisible('space')) (D.space?.stationPositions||[]).forEach(s=>{
     const g=addPt(s.lat,s.lon,5,'rgba(255,255,255,0.9)','rgba(255,255,255,0.4)',ev=>showPopup(ev,s.name,'Orbital position estimate','Space Station'),1);
     if(g) g.append('text').attr('class','marker-label').attr('x',8).attr('y',3).attr('fill','rgba(255,255,255,0.7)').attr('font-size','8px').attr('font-family','var(--mono)').text(s.name.split('(')[0].trim());
   });
   // GDELT geo events
-  if (layerVisible('gdelt')) (D.gdelt?.geoPoints||[]).forEach(g=>{addPt(g.lat,g.lon,2.5,'rgba(100,149,237,0.5)','rgba(100,149,237,0.2)',ev=>showPopup(ev,'GDELT Event',g.name||'','GDELT · '+g.count+' reports'),3)});
+  if (layerVisible('gdelt')) (D.gdelt?.geoPoints||[]).forEach(g=>{addPt(g.lat,g.lon,2.5,'rgba(100,149,237,0.5)','rgba(100,149,237,0.2)',ev=>showPopup(ev,'GDELT Event',g.name||'','GDELT · '+g.count+' reports'),3,'gdelt')});
   // ACLED
   if (layerVisible('conflict')) (D.acled?.deadliestEvents||[]).filter(e=>e.lat&&e.lon).forEach(e=>{
     const[x,y]=proj([e.lon,e.lat]);if(!x||!y)return;
@@ -1677,6 +1809,8 @@ function plotFlatMarkers(){
         .attr('d', flatPath).attr('fill', 'rgba(255,152,0,0.10)').attr('stroke', 'rgba(255,152,0,0.45)').attr('stroke-width', 1);
     }
   }
+  const flatK = flatSvg ? (d3.zoomTransform(flatSvg.node()).k || 1) : _flatZoomK;
+  updateFlatMarkerSpread(flatK);
 }
 
 // Update setRegion for flat mode
