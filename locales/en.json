@@ -50,6 +50,7 @@
     "osintFeed": "OSINT Feed",
     "osintStream": "OSINT Stream",
     "nuclearWatch": "Nuclear Watch",
+    "earthquakeWatch": "Earthquake Watch",
     "newsTicker": "Live News Ticker",
     "sweepDelta": "Sweep Delta",
     "macroMarkets": "Macro + Markets",
@@ -83,6 +84,7 @@
     "whoAlerts": "WHO alerts",
     "rssGeolocated": "RSS geolocated",
     "earthquakes": "Earthquakes",
+    "earthquakeActivity": "Earthquake Activity",
     "seismicEvents": "Seismic Events",
     "cyberVulns": "Cyber Vulnerabilities",
     "spaceActivity": "Space Activity",
@@ -152,7 +154,8 @@
     "stress": "STRESS",
     "sweeping": "SWEEPING...",
     "europe": "EUROPE",
-    "orbital": "ORBITAL"
+    "orbital": "ORBITAL",
+    "usgs": "USGS"
   },
   "delta": {
     "baseline": "BASELINE",
@@ -213,7 +216,9 @@
     "noRecentQuakes": "NO SIGNIFICANT QUAKES",
     "majorQuake": "MAJOR QUAKE DETECTED",
     "tsunamiRisk": "TSUNAMI RISK",
-    "mag": "M"
+    "mag": "M",
+    "events": "EVENTS",
+    "unknownLocation": "Unknown location"
   },
   "cyber": {
     "noAlerts": "NO CRITICAL CVES",
