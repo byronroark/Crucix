@@ -10,7 +10,7 @@ import { exec } from 'child_process';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
 import { fullBriefing } from './apis/briefing.mjs';
-import { synthesize, generateIdeas } from './dashboard/inject.mjs';
+import { synthesize, generateIdeas, buildWatchlistMarketPatch } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
@@ -389,33 +389,31 @@ async function hotRefreshCustomSources() {
 
 async function hotRefreshMarketWatchlist({ force = false } = {}) {
   const latestPath = join(RUNS_DIR, 'latest.json');
-  if (!existsSync(latestPath)) return false;
+  if (!existsSync(latestPath) || !currentData) return false;
   if (!force && sweepInProgress) return false;
   try {
     const raw = JSON.parse(readFileSync(latestPath, 'utf8'));
     raw.sources.YFinance = await collectYFinance();
     raw.sources.MarketNews = await collectMarketNews();
-    const synthesized = await synthesize(raw);
-    if (currentData) {
-      synthesized.delta = currentData.delta;
-      synthesized.ideas = currentData.ideas || [];
-      synthesized.ideasSource = currentData.ideasSource;
-      synthesized.intelAnalysis = currentData.intelAnalysis || [];
-      synthesized.intelAnalysisSource = currentData.intelAnalysisSource;
-      synthesized.marketIntel = currentData.marketIntel || [];
-    }
-    const wlCount = synthesized.markets?.marketIntelSymbolCount || 0;
-    const newsCount = synthesized.marketNews?.items?.length || 0;
+    writeFileSync(latestPath, JSON.stringify(raw, null, 2));
+
+    const patch = buildWatchlistMarketPatch(raw);
+    currentData.markets = patch.markets;
+    currentData.marketNews = patch.marketNews;
+    currentData.metals = { ...currentData.metals, ...patch.metals };
+    currentData.energy = { ...currentData.energy, ...patch.energyPatch };
+
+    const wlCount = patch.markets?.marketIntelSymbolCount || 0;
+    const newsCount = patch.marketNews?.items?.length || 0;
     if (!wlCount) {
-      synthesized.marketIntelSource = 'no-watchlist';
-      synthesized.marketIntel = [];
+      currentData.marketIntelSource = 'no-watchlist';
+      currentData.marketIntel = [];
     } else if (newsCount) {
-      synthesized.marketIntelSource = synthesized.marketIntel?.length ? 'llm' : 'headlines-only';
+      currentData.marketIntelSource = currentData.marketIntel?.length ? 'llm' : 'headlines-only';
     } else {
-      synthesized.marketIntelSource = 'headlines-only';
-      synthesized.marketIntel = [];
+      currentData.marketIntelSource = 'headlines-only';
+      currentData.marketIntel = [];
     }
-    currentData = synthesized;
     broadcast({ type: 'update', data: currentData });
     return true;
   } catch (err) {
@@ -512,8 +510,10 @@ app.post('/api/config/market-watchlist', requireAdmin, async (req, res) => {
   try {
     const result = addSymbol(req.body || {});
     if (!result.ok) return res.status(400).json(result);
-    const refreshed = await hotRefreshMarketWatchlist({ force: true });
-    res.json({ ...result, refreshed });
+    res.json({ ...result, refreshed: null, refreshPending: true });
+    hotRefreshMarketWatchlist({ force: true }).catch(err => {
+      console.error('[Crucix] Background watchlist refresh failed:', err.message);
+    });
   } catch (err) {
     console.error('[Crucix] Watchlist add failed:', err.message);
     res.status(500).json({ ok: false, errors: [err.message] });
@@ -524,8 +524,10 @@ app.put('/api/config/market-watchlist/:id', requireAdmin, async (req, res) => {
   try {
     const result = updateSymbol(req.params.id, req.body || {});
     if (!result.ok) return res.status(result.errors?.[0] === 'symbol not found' ? 404 : 400).json(result);
-    const refreshed = await hotRefreshMarketWatchlist({ force: true });
-    res.json({ ...result, refreshed });
+    res.json({ ...result, refreshed: null, refreshPending: true });
+    hotRefreshMarketWatchlist({ force: true }).catch(err => {
+      console.error('[Crucix] Background watchlist refresh failed:', err.message);
+    });
   } catch (err) {
     console.error('[Crucix] Watchlist update failed:', err.message);
     res.status(500).json({ ok: false, errors: [err.message] });
@@ -536,8 +538,10 @@ app.delete('/api/config/market-watchlist/:id', requireAdmin, async (req, res) =>
   try {
     const result = deleteSymbol(req.params.id);
     if (!result.ok) return res.status(404).json(result);
-    const refreshed = await hotRefreshMarketWatchlist({ force: true });
-    res.json({ ...result, refreshed });
+    res.json({ ...result, refreshed: null, refreshPending: true });
+    hotRefreshMarketWatchlist({ force: true }).catch(err => {
+      console.error('[Crucix] Background watchlist refresh failed:', err.message);
+    });
   } catch (err) {
     console.error('[Crucix] Watchlist delete failed:', err.message);
     res.status(500).json({ ok: false, errors: [err.message] });

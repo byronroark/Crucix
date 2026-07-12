@@ -2419,16 +2419,69 @@ async function refreshDashboardData() {
 
 async function refreshWatchlistDashboard() {
   try {
-    await fetch('/api/config/market-watchlist/refresh', {
+    const res = await fetch('/api/config/market-watchlist/refresh?force=1', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ force: true }),
     });
-  } catch (_) { /* non-fatal */ }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.refreshed) {
+      console.warn('[Crucix] Watchlist dashboard refresh incomplete');
+    }
+  } catch (e) {
+    console.warn('[Crucix] Watchlist refresh failed:', e.message);
+  }
   await refreshDashboardData();
 }
 
 const watchlistDeleteInFlight = new Set();
+let watchlistSaveInFlight = false;
+let watchlistCache = [];
+
+function renderWatchlistSymbolCard(s) {
+  const aliases = (s.aliases || []).join(', ');
+  const sid = cleanText(s.id);
+  const quoteTag = s.assetClass === 'crypto' && s.quoteCurrency && s.quoteCurrency !== 'USD'
+    ? `<span class="source-tag">${cleanText(s.quoteCurrency)}</span>` : '';
+  return `<div class="source-card" data-watchlist-id="${sid}">
+    <div class="source-card-head"><div class="source-card-title">${cleanText(s.symbol)} — ${cleanText(s.name || s.symbol)}</div></div>
+    <div class="source-card-meta">
+      <span class="source-tag">${cleanText(String(s.assetClass || 'stock').toUpperCase())}</span>
+      ${quoteTag}
+      ${aliases ? `<span class="source-tag">${cleanText(aliases)}</span>` : ''}
+    </div>
+    <div class="sources-actions" style="margin-top:8px">
+      <button class="sources-btn wl-edit-btn" type="button" data-id="${sid}">Edit</button>
+      <button class="sources-btn danger wl-remove-btn" type="button" data-id="${sid}">Remove</button>
+    </div>
+  </div>`;
+}
+
+function renderWatchlistList(symbols) {
+  const list = document.getElementById('watchlistList');
+  if (!list) return;
+  const defaultsHdr = '<div style="font-family:var(--mono);font-size:9px;color:var(--dim);letter-spacing:1px;margin:0 0 8px">YOUR TRACKED SYMBOLS</div>';
+  if (!symbols.length) {
+    list.innerHTML = `${defaultsHdr}<div style="color:var(--dim);font-family:var(--mono);font-size:11px">No extra symbols tracked yet.</div>`;
+    return;
+  }
+  list.innerHTML = defaultsHdr + symbols.map(renderWatchlistSymbolCard).join('');
+}
+
+function applyWatchlistSave(symbol, editId) {
+  if (!symbol) return;
+  if (editId) {
+    watchlistCache = watchlistCache.map(s => s.id === editId ? symbol : s);
+  } else if (!watchlistCache.some(s => s.id === symbol.id || s.symbol === symbol.symbol)) {
+    watchlistCache = [...watchlistCache, symbol];
+  }
+  renderWatchlistList(watchlistCache);
+}
+
+function removeWatchlistFromCache(id) {
+  watchlistCache = watchlistCache.filter(s => s.id !== id);
+  renderWatchlistList(watchlistCache);
+}
 
 async function ensureWatchlistSynced() {
   if (location.protocol === 'file:') return;
@@ -2436,9 +2489,8 @@ async function ensureWatchlistSynced() {
     const wl = await fetch('/api/config/market-watchlist').then(r => r.json());
     const savedCount = (wl.symbols || []).length;
     if (!savedCount) return;
-    const loadedCount = D.markets?.watchlistCount || 0;
     const trackedCount = (D.markets?.tracked || []).length;
-    if (loadedCount >= savedCount && trackedCount > 0) return;
+    if (trackedCount >= savedCount) return;
     const res = await fetch('/api/config/market-watchlist/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2487,30 +2539,8 @@ async function loadWatchlistPanel() {
     watchlistAdminRequired = Boolean(data.adminRequired);
     renderWatchlistDefaults(data.defaults);
     document.getElementById('wlAdminTokenField').style.display = watchlistAdminRequired ? 'block' : 'none';
-    const symbols = data.symbols || [];
-    const defaultsHdr = '<div style="font-family:var(--mono);font-size:9px;color:var(--dim);letter-spacing:1px;margin:0 0 8px">YOUR TRACKED SYMBOLS</div>';
-    if (!symbols.length) {
-      list.innerHTML = `${defaultsHdr}<div style="color:var(--dim);font-family:var(--mono);font-size:11px">No extra symbols tracked yet.</div>`;
-      return;
-    }
-    list.innerHTML = defaultsHdr + symbols.map(s => {
-      const aliases = (s.aliases || []).join(', ');
-      const sid = cleanText(s.id);
-      const quoteTag = s.assetClass === 'crypto' && s.quoteCurrency && s.quoteCurrency !== 'USD'
-        ? `<span class="source-tag">${cleanText(s.quoteCurrency)}</span>` : '';
-      return `<div class="source-card" data-watchlist-id="${sid}">
-        <div class="source-card-head"><div class="source-card-title">${cleanText(s.symbol)} — ${cleanText(s.name || s.symbol)}</div></div>
-        <div class="source-card-meta">
-          <span class="source-tag">${cleanText(String(s.assetClass || 'stock').toUpperCase())}</span>
-          ${quoteTag}
-          ${aliases ? `<span class="source-tag">${cleanText(aliases)}</span>` : ''}
-        </div>
-        <div class="sources-actions" style="margin-top:8px">
-          <button class="sources-btn wl-edit-btn" type="button" data-id="${sid}">Edit</button>
-          <button class="sources-btn danger wl-remove-btn" type="button" data-id="${sid}">Remove</button>
-        </div>
-      </div>`;
-    }).join('');
+    watchlistCache = data.symbols || [];
+    renderWatchlistList(watchlistCache);
   } catch (e) {
     list.innerHTML = `<div style="color:#ffb0b2;font-family:var(--mono);font-size:11px">Failed to load watchlist: ${cleanText(e.message)}</div>`;
   }
@@ -2567,6 +2597,7 @@ async function testWatchlistSymbol() {
 }
 
 async function saveWatchlistSymbol() {
+  if (watchlistSaveInFlight) return;
   await normalizeWatchlistInput();
   const payload = watchlistFormPayload();
   if (!payload.symbol) { showWatchlistToast('Enter a symbol first'); return; }
@@ -2577,6 +2608,10 @@ async function saveWatchlistSymbol() {
     document.getElementById('wlAdminTokenField').style.display = 'block';
     return;
   }
+  const saveBtn = document.getElementById('wlSaveBtn');
+  const prevLabel = saveBtn?.textContent || 'Add symbol';
+  watchlistSaveInFlight = true;
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   try {
     const res = await fetch(editId ? `/api/config/market-watchlist/${encodeURIComponent(editId)}` : '/api/config/market-watchlist', {
       method: editId ? 'PUT' : 'POST',
@@ -2586,13 +2621,25 @@ async function saveWatchlistSymbol() {
     let data;
     try { data = await res.json(); } catch { data = {}; }
     if (!res.ok) throw new Error((data.errors && data.errors[0]) || data.error || `Save failed (${res.status})`);
-    showWatchlistToast(editId ? 'Updated — refreshing dashboard' : 'Added — refreshing dashboard');
+    applyWatchlistSave(data.symbol, editId);
     resetWatchlistForm();
-    await loadWatchlistPanel();
-    await refreshWatchlistDashboard();
+    showWatchlistToast(editId ? 'Updated — refreshing dashboard' : 'Added — refreshing dashboard');
+    void loadWatchlistPanel();
+    void refreshWatchlistDashboard();
   } catch (e) {
-    showWatchlistToast(e.message);
+    const msg = e.message || '';
+    if (msg.includes('already on the watchlist')) {
+      showWatchlistToast('Already tracked');
+      resetWatchlistForm();
+      await loadWatchlistPanel();
+      void refreshWatchlistDashboard();
+      return;
+    }
+    showWatchlistToast(msg);
     await loadWatchlistPanel();
+  } finally {
+    watchlistSaveInFlight = false;
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = prevLabel; }
   }
 }
 
@@ -2621,8 +2668,9 @@ async function deleteWatchlistSymbol(id) {
     }
     showWatchlistToast(alreadyGone && !res.ok ? 'Already removed — refreshing dashboard' : 'Removed — refreshing dashboard');
     resetWatchlistForm();
-    await loadWatchlistPanel();
-    await refreshWatchlistDashboard();
+    removeWatchlistFromCache(id);
+    void loadWatchlistPanel();
+    void refreshWatchlistDashboard();
   } catch (e) {
     showWatchlistToast(e.message);
     await loadWatchlistPanel();

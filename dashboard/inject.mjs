@@ -333,6 +333,95 @@ export function generateIdeas(V2) {
   return ideas.slice(0, 8);
 }
 
+/** Markets + marketNews patch from YFinance/MarketNews only (no RSS). Used for watchlist hot refresh. */
+export function buildWatchlistMarketPatch(data) {
+  const yfData = data.sources.YFinance || {};
+  const yfQuotes = yfData.quotes || {};
+  const mapQuoteTile = q => ({
+    symbol: q.symbol,
+    name: q.name,
+    price: q.price,
+    change: q.change,
+    changePct: q.changePct,
+    history: q.history || [],
+  });
+  const findCryptoQuote = (sym) => {
+    const fromCrypto = (yfData.crypto || []).find(q => q.symbol === sym);
+    if (fromCrypto) return fromCrypto;
+    const fromQuotes = yfQuotes[sym];
+    if (fromQuotes && !fromQuotes.error) return fromQuotes;
+    return (yfData.tracked || []).find(q => normalizeSymbol(q.symbol, 'crypto').symbol === sym) || null;
+  };
+  const cryptoTiles = DEFAULT_CRYPTO_SYMBOLS.map(findCryptoQuote).filter(Boolean).map(mapQuoteTile);
+  const cryptoSymSet = new Set(DEFAULT_CRYPTO_SYMBOLS);
+  const markets = {
+    quotes: yfQuotes,
+    indexes: (yfData.indexes || []).map(q => ({
+      symbol: q.symbol, name: q.name, price: q.price,
+      change: q.change, changePct: q.changePct, history: q.history || []
+    })),
+    rates: (yfData.rates || []).map(q => ({
+      symbol: q.symbol, name: q.name, price: q.price,
+      change: q.change, changePct: q.changePct
+    })),
+    commodities: (yfData.commodities || []).map(q => ({
+      symbol: q.symbol, name: q.name, price: q.price,
+      change: q.change, changePct: q.changePct, history: q.history || []
+    })),
+    crypto: cryptoTiles,
+    vix: yfQuotes['^VIX'] ? {
+      value: yfQuotes['^VIX'].price,
+      change: yfQuotes['^VIX'].change,
+      changePct: yfQuotes['^VIX'].changePct,
+    } : null,
+    tracked: (yfData.tracked || [])
+      .filter(q => {
+        const norm = normalizeSymbol(q.symbol, 'crypto').symbol;
+        return !cryptoSymSet.has(norm) && !isDefaultMarketIntelSymbol(norm);
+      })
+      .map(q => ({
+        symbol: q.symbol, name: q.name, price: q.price,
+        change: q.change, changePct: q.changePct, history: q.history || [],
+        assetClass: q.symbol.includes('-USD') ? 'crypto' : 'stock',
+      })),
+    watchlistCount: (yfData.watchlistSymbols || []).length,
+    marketIntelSymbolCount: loadMarketIntelSymbols().length,
+    timestamp: yfData.summary?.timestamp || null,
+  };
+
+  const mnData = data.sources.MarketNews || {};
+  const marketNews = {
+    items: mnData.items || [],
+    bySymbol: mnData.bySymbol || {},
+    symbols: mnData.symbols?.length ? mnData.symbols : loadMarketIntelSymbols().map(s => s.symbol),
+    timestamp: mnData.timestamp || null,
+  };
+
+  const yfGold = yfQuotes['GC=F'];
+  const yfSilver = yfQuotes['SI=F'];
+  const metals = {
+    gold: yfGold?.price,
+    goldChange: yfGold?.change,
+    goldChangePct: yfGold?.changePct,
+    goldRecent: yfGold?.history?.map(h => h.close) || [],
+    silver: yfSilver?.price,
+    silverChange: yfSilver?.change,
+    silverChangePct: yfSilver?.changePct,
+    silverRecent: yfSilver?.history?.map(h => h.close) || [],
+  };
+
+  const yfWti = yfQuotes['CL=F'];
+  const yfBrent = yfQuotes['BZ=F'];
+  const yfNatgas = yfQuotes['NG=F'];
+  const energyPatch = {};
+  if (yfWti?.price) energyPatch.wti = yfWti.price;
+  if (yfBrent?.price) energyPatch.brent = yfBrent.price;
+  if (yfNatgas?.price) energyPatch.natgas = yfNatgas.price;
+  if (yfWti?.history?.length) energyPatch.wtiRecent = yfWti.history.map(h => h.close);
+
+  return { markets, marketNews, metals, energyPatch };
+}
+
 // === Synthesize raw sweep data into dashboard format ===
 export async function synthesize(data) {
   const liveAirHotspots = data.sources.OpenSky?.hotspots || [];
@@ -547,92 +636,8 @@ export async function synthesize(data) {
     n: name, err: Boolean(src.error), stale: Boolean(src.stale)
   }));
 
-  // === Yahoo Finance live market data ===
-  const yfData = data.sources.YFinance || {};
-  const yfQuotes = yfData.quotes || {};
-  const mapQuoteTile = q => ({
-    symbol: q.symbol,
-    name: q.name,
-    price: q.price,
-    change: q.change,
-    changePct: q.changePct,
-    history: q.history || [],
-  });
-  const findCryptoQuote = (sym) => {
-    const fromCrypto = (yfData.crypto || []).find(q => q.symbol === sym);
-    if (fromCrypto) return fromCrypto;
-    const fromQuotes = yfQuotes[sym];
-    if (fromQuotes && !fromQuotes.error) return fromQuotes;
-    return (yfData.tracked || []).find(q => normalizeSymbol(q.symbol, 'crypto').symbol === sym) || null;
-  };
-  const cryptoTiles = DEFAULT_CRYPTO_SYMBOLS.map(findCryptoQuote).filter(Boolean).map(mapQuoteTile);
-  const cryptoSymSet = new Set(DEFAULT_CRYPTO_SYMBOLS);
-  const markets = {
-    // Raw symbol-keyed map so the dashboard can look up specific tickers
-    // (e.g. GC=F, SI=F for the Gold/Silver tiles).
-    quotes: yfQuotes,
-    indexes: (yfData.indexes || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct, history: q.history || []
-    })),
-    rates: (yfData.rates || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct
-    })),
-    commodities: (yfData.commodities || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct, history: q.history || []
-    })),
-    crypto: cryptoTiles,
-    vix: yfQuotes['^VIX'] ? {
-      value: yfQuotes['^VIX'].price,
-      change: yfQuotes['^VIX'].change,
-      changePct: yfQuotes['^VIX'].changePct,
-    } : null,
-    tracked: (yfData.tracked || [])
-      .filter(q => {
-        const norm = normalizeSymbol(q.symbol, 'crypto').symbol;
-        return !cryptoSymSet.has(norm) && !isDefaultMarketIntelSymbol(norm);
-      })
-      .map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct, history: q.history || [],
-      assetClass: q.symbol.includes('-USD') ? 'crypto' : 'stock',
-    })),
-    watchlistCount: (yfData.watchlistSymbols || []).length,
-    marketIntelSymbolCount: loadMarketIntelSymbols().length,
-    timestamp: yfData.summary?.timestamp || null,
-  };
-
-  const mnData = data.sources.MarketNews || {};
-  const marketNews = {
-    items: mnData.items || [],
-    bySymbol: mnData.bySymbol || {},
-    symbols: mnData.symbols?.length ? mnData.symbols : loadMarketIntelSymbols().map(s => s.symbol),
-    timestamp: mnData.timestamp || null,
-  };
-
-  const yfGold = yfQuotes['GC=F'];
-  const yfSilver = yfQuotes['SI=F'];
-  const metals = {
-    gold: yfGold?.price,
-    goldChange: yfGold?.change,
-    goldChangePct: yfGold?.changePct,
-    goldRecent: yfGold?.history?.map(h => h.close) || [],
-    silver: yfSilver?.price,
-    silverChange: yfSilver?.change,
-    silverChangePct: yfSilver?.changePct,
-    silverRecent: yfSilver?.history?.map(h => h.close) || [],
-  };
-
-  // Override stale EIA prices with live Yahoo Finance data if available
-  const yfWti = yfQuotes['CL=F'];
-  const yfBrent = yfQuotes['BZ=F'];
-  const yfNatgas = yfQuotes['NG=F'];
-  if (yfWti?.price) energy.wti = yfWti.price;
-  if (yfBrent?.price) energy.brent = yfBrent.price;
-  if (yfNatgas?.price) energy.natgas = yfNatgas.price;
-  if (yfWti?.history?.length) energy.wtiRecent = yfWti.history.map(h => h.close);
+  const { markets, marketNews, metals, energyPatch } = buildWatchlistMarketPatch(data);
+  Object.assign(energy, energyPatch);
 
   // Fetch RSS
   const news = await fetchAllNews();
