@@ -22,6 +22,16 @@ import {
   updateSymbol,
   deleteSymbol,
 } from './lib/config/market-watchlist-store.mjs';
+import {
+  loadLastSweepAt,
+  saveLastSweepAt,
+  resolveLastSweepAt,
+  msUntilNextSweep,
+} from './lib/config/sweep-state.mjs';
+import {
+  saveDashboardSnapshot,
+  applyDashboardSnapshot,
+} from './lib/config/dashboard-snapshot.mjs';
 import { testSymbol, collect as collectYFinance } from './apis/sources/yfinance.mjs';
 import { collect as collectMarketNews } from './apis/sources/market-news.mjs';
 import { collect as collectCustomFeeds, testRssFeed, testCustomSource } from './apis/sources/custom-feeds.mjs';
@@ -50,6 +60,7 @@ let currentData = null;    // Current synthesized dashboard data
 let lastSweepTime = null;  // Timestamp of last sweep
 let sweepStartedAt = null; // Timestamp when current/last sweep started
 let sweepInProgress = false;
+let sweepTimer = null;
 const startTime = Date.now();
 const sseClients = new Set();
 
@@ -575,6 +586,24 @@ function broadcast(data) {
 }
 
 // === Sweep Cycle ===
+function scheduleNextSweep({ ifNeverSweptDelayMs = 0 } = {}) {
+  if (sweepTimer) {
+    clearTimeout(sweepTimer);
+    sweepTimer = null;
+  }
+  const delay = lastSweepTime
+    ? msUntilNextSweep(lastSweepTime, config.refreshIntervalMinutes)
+    : ifNeverSweptDelayMs;
+  const nextAt = new Date(Date.now() + delay);
+  console.log(`[Crucix] Next sweep scheduled at ${nextAt.toLocaleString()}`);
+  sweepTimer = setTimeout(() => {
+    runSweepCycle().catch(err => {
+      console.error('[Crucix] Scheduled sweep failed:', err.message || err);
+      scheduleNextSweep({ ifNeverSweptDelayMs: config.refreshIntervalMinutes * 60 * 1000 });
+    });
+  }, delay);
+}
+
 async function runSweepCycle() {
   if (sweepInProgress) {
     console.log('[Crucix] Sweep already in progress, skipping');
@@ -594,7 +623,8 @@ async function runSweepCycle() {
 
     // 2. Save to runs/latest.json
     writeFileSync(join(RUNS_DIR, 'latest.json'), JSON.stringify(rawData, null, 2));
-    lastSweepTime = new Date().toISOString();
+    lastSweepTime = rawData.crucix?.timestamp || new Date().toISOString();
+    saveLastSweepAt(lastSweepTime);
 
     // 3. Synthesize into dashboard format
     console.log('[Crucix] Synthesizing dashboard data...');
@@ -712,6 +742,7 @@ async function runSweepCycle() {
     // Prune old alerted signals
     memory.pruneAlertedSignals();
 
+    saveDashboardSnapshot(synthesized);
     currentData = synthesized;
 
     // 6. Push to all connected browsers
@@ -720,7 +751,7 @@ async function runSweepCycle() {
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
     console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.intelAnalysis?.length || 0} intel (${synthesized.intelAnalysisSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
     if (delta?.summary) console.log(`[Crucix] Delta: ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical, direction: ${delta.summary.direction}`);
-    console.log(`[Crucix] Next sweep at ${new Date(Date.now() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()}`);
+    scheduleNextSweep();
 
   } catch (err) {
     console.error('[Crucix] Sweep failed:', err.message);
@@ -776,27 +807,44 @@ async function start() {
     });
 
     // Try to load existing data first for instant display (await so dashboard shows immediately)
+    let existingRaw = null;
     try {
-      const existing = JSON.parse(readFileSync(join(RUNS_DIR, 'latest.json'), 'utf8'));
-      const data = await synthesize(existing);
+      existingRaw = JSON.parse(readFileSync(join(RUNS_DIR, 'latest.json'), 'utf8'));
+      const sweepAt = existingRaw?.crucix?.timestamp || null;
+      let data = await synthesize(existingRaw);
+      data = applyDashboardSnapshot(data, sweepAt);
+      if (!data.delta) {
+        const delta = memory.getLastDelta();
+        if (delta) data.delta = delta;
+      }
       currentData = data;
-      console.log('[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly');
+      const restored = data.ideas?.length || data.intelAnalysis?.length || data.marketIntel?.length;
+      console.log(`[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly${restored ? ' (LLM summaries restored)' : ''}`);
       broadcast({ type: 'update', data: currentData });
     } catch {
       console.log('[Crucix] No existing data found — first sweep required');
     }
 
-    // Run first sweep (refreshes data in background)
-    console.log('[Crucix] Running initial sweep...');
+    lastSweepTime = resolveLastSweepAt(loadLastSweepAt(), existingRaw?.crucix?.timestamp || null);
+    if (lastSweepTime) saveLastSweepAt(lastSweepTime);
+
     await warmAcledAuth().catch((err) => {
       console.warn('[ACLED] Auth warmup error:', err.message);
     });
-    runSweepCycle().catch(err => {
-      console.error('[Crucix] Initial sweep failed:', err.message || err);
-    });
 
-    // Schedule recurring sweeps
-    setInterval(runSweepCycle, config.refreshIntervalMinutes * 60 * 1000);
+    const waitMs = msUntilNextSweep(lastSweepTime, config.refreshIntervalMinutes);
+    if (!existingRaw || waitMs === 0) {
+      const reason = !existingRaw ? 'no prior sweep data' : 'refresh interval elapsed';
+      console.log(`[Crucix] Running sweep now (${reason})...`);
+      runSweepCycle().catch(err => {
+        console.error('[Crucix] Initial sweep failed:', err.message || err);
+        scheduleNextSweep({ ifNeverSweptDelayMs: config.refreshIntervalMinutes * 60 * 1000 });
+      });
+    } else {
+      const mins = Math.ceil(waitMs / 60000);
+      console.log(`[Crucix] Skipping immediate sweep — last sweep ${new Date(lastSweepTime).toLocaleString()}, next in ~${mins} min`);
+      scheduleNextSweep();
+    }
   });
 }
 

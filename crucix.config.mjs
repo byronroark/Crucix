@@ -189,6 +189,8 @@ export default {
 
   // User-managed stock/crypto watchlist — extra price tiles + Market Intelligence news
   marketWatchlistUserFile: process.env.MARKET_WATCHLIST_USER_FILE || 'runs/config/market-watchlist.json',
+  sweepStateFile: process.env.SWEEP_STATE_FILE || 'runs/config/sweep-state.json',
+  dashboardSnapshotFile: process.env.DASHBOARD_SNAPSHOT_FILE || 'runs/config/dashboard-snapshot.json',
 
   marketIntel: {
     enabled: true,
