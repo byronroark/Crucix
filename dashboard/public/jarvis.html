@@ -2352,6 +2352,19 @@ async function refreshDashboardData() {
   } catch (_) { /* non-fatal */ }
 }
 
+async function refreshWatchlistDashboard() {
+  try {
+    await fetch('/api/config/market-watchlist/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force: true }),
+    });
+  } catch (_) { /* non-fatal */ }
+  await refreshDashboardData();
+}
+
+const watchlistDeleteInFlight = new Set();
+
 async function ensureWatchlistSynced() {
   if (location.protocol === 'file:') return;
   try {
@@ -2361,7 +2374,11 @@ async function ensureWatchlistSynced() {
     const loadedCount = D.markets?.watchlistCount || 0;
     const trackedCount = (D.markets?.tracked || []).length;
     if (loadedCount >= savedCount && trackedCount > 0) return;
-    const res = await fetch('/api/config/market-watchlist/refresh', { method: 'POST' });
+    const res = await fetch('/api/config/market-watchlist/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force: true }),
+    });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.refreshed) await refreshDashboardData();
   } catch (e) {
@@ -2486,15 +2503,16 @@ async function saveWatchlistSymbol() {
     if (!res.ok) throw new Error((data.errors && data.errors[0]) || data.error || `Save failed (${res.status})`);
     showWatchlistToast(editId ? 'Updated — refreshing dashboard' : 'Added — refreshing dashboard');
     resetWatchlistForm();
-    loadWatchlistPanel();
-    if (data.refreshed) await refreshDashboardData();
-    else showWatchlistToast('Saved — tiles update on next sweep (~15 min)');
+    await loadWatchlistPanel();
+    await refreshWatchlistDashboard();
   } catch (e) {
     showWatchlistToast(e.message);
+    await loadWatchlistPanel();
   }
 }
 
 async function deleteWatchlistSymbol(id) {
+  if (!id || watchlistDeleteInFlight.has(id)) return;
   if (!confirm('Remove this symbol from the watchlist?')) return;
   saveWatchlistAdminToken();
   if (watchlistAdminRequired && !getAdminToken() && !document.getElementById('wlAdminToken')?.value?.trim()) {
@@ -2502,19 +2520,29 @@ async function deleteWatchlistSymbol(id) {
     document.getElementById('wlAdminTokenField').style.display = 'block';
     return;
   }
+  watchlistDeleteInFlight.add(id);
   try {
     const res = await fetch(`/api/config/market-watchlist/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: watchlistHeaders(false),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error((data.errors && data.errors[0]) || data.error || 'Delete failed');
-    showWatchlistToast('Removed — refreshing dashboard');
+    let data;
+    try { data = await res.json(); } catch { data = {}; }
+    const alreadyGone = res.status === 404
+      || data.errors?.[0] === 'symbol not found'
+      || data.error === 'symbol not found';
+    if (!res.ok && !alreadyGone) {
+      throw new Error((data.errors && data.errors[0]) || data.error || 'Delete failed');
+    }
+    showWatchlistToast(alreadyGone && !res.ok ? 'Already removed — refreshing dashboard' : 'Removed — refreshing dashboard');
     resetWatchlistForm();
-    loadWatchlistPanel();
-    if (data.refreshed) await refreshDashboardData();
+    await loadWatchlistPanel();
+    await refreshWatchlistDashboard();
   } catch (e) {
     showWatchlistToast(e.message);
+    await loadWatchlistPanel();
+  } finally {
+    watchlistDeleteInFlight.delete(id);
   }
 }
 

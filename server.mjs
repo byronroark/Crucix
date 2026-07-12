@@ -374,9 +374,10 @@ async function hotRefreshCustomSources() {
   }
 }
 
-async function hotRefreshMarketWatchlist() {
+async function hotRefreshMarketWatchlist({ force = false } = {}) {
   const latestPath = join(RUNS_DIR, 'latest.json');
-  if (!existsSync(latestPath) || sweepInProgress) return false;
+  if (!existsSync(latestPath)) return false;
+  if (!force && sweepInProgress) return false;
   try {
     const raw = JSON.parse(readFileSync(latestPath, 'utf8'));
     raw.sources.YFinance = await collectYFinance();
@@ -464,7 +465,8 @@ app.get('/api/config/market-watchlist', (req, res) => {
 });
 
 app.post('/api/config/market-watchlist/refresh', async (req, res) => {
-  const refreshed = await hotRefreshMarketWatchlist();
+  const force = req.body?.force === true || req.query?.force === '1';
+  const refreshed = await hotRefreshMarketWatchlist({ force });
   res.json({ refreshed });
 });
 
@@ -484,7 +486,7 @@ app.post('/api/config/market-watchlist', requireAdmin, async (req, res) => {
   try {
     const result = addSymbol(req.body || {});
     if (!result.ok) return res.status(400).json(result);
-    const refreshed = await hotRefreshMarketWatchlist();
+    const refreshed = await hotRefreshMarketWatchlist({ force: true });
     res.json({ ...result, refreshed });
   } catch (err) {
     console.error('[Crucix] Watchlist add failed:', err.message);
@@ -496,7 +498,7 @@ app.put('/api/config/market-watchlist/:id', requireAdmin, async (req, res) => {
   try {
     const result = updateSymbol(req.params.id, req.body || {});
     if (!result.ok) return res.status(result.errors?.[0] === 'symbol not found' ? 404 : 400).json(result);
-    const refreshed = await hotRefreshMarketWatchlist();
+    const refreshed = await hotRefreshMarketWatchlist({ force: true });
     res.json({ ...result, refreshed });
   } catch (err) {
     console.error('[Crucix] Watchlist update failed:', err.message);
@@ -508,7 +510,7 @@ app.delete('/api/config/market-watchlist/:id', requireAdmin, async (req, res) =>
   try {
     const result = deleteSymbol(req.params.id);
     if (!result.ok) return res.status(404).json(result);
-    const refreshed = await hotRefreshMarketWatchlist();
+    const refreshed = await hotRefreshMarketWatchlist({ force: true });
     res.json({ ...result, refreshed });
   } catch (err) {
     console.error('[Crucix] Watchlist delete failed:', err.message);
