@@ -417,7 +417,17 @@ function loadTokenCacheIntoSession() {
   try {
     const doc = JSON.parse(readFileSync(TOKEN_CACHE_FILE, 'utf8'));
     const expires = doc.expires_at ? new Date(doc.expires_at).getTime() : 0;
-    if (!doc.access_token || !expires || Date.now() >= expires - TOKEN_SKEW_MS) return false;
+    if (!doc.access_token || !expires) return false;
+    if (Date.now() >= expires - TOKEN_SKEW_MS) {
+      if (doc.refresh_token) {
+        sessionCache.refreshToken = doc.refresh_token.trim();
+        sessionCache.refreshExpires = doc.refresh_expires_at
+          ? new Date(doc.refresh_expires_at).getTime()
+          : Date.now() + REFRESH_TTL_MS;
+        debugLog('Access token expired in cache — kept refresh_token for renewal');
+      }
+      return false;
+    }
     sessionCache = {
       cookies: null,
       token: doc.access_token,
@@ -827,8 +837,8 @@ async function authenticate() {
     sessionCache.refreshExpires = 0;
   }
 
-  // Bootstrap from .env access token (paste from curl.exe on Windows — see .env.example)
-  const envTokens = envTokenBootstrap();
+  // Pasted .env tokens — only when email/password not configured (legacy bootstrap)
+  const envTokens = (!email || !password) ? envTokenBootstrap() : null;
   if (envTokens) {
     debugLog('Probing ACLED_ACCESS_TOKEN from .env');
     const session = await establishOAuthSession(envTokens);
@@ -1070,6 +1080,23 @@ export async function briefing() {
     topCountries,
     deadliestEvents,
   };
+}
+
+/** Fetch and cache OAuth tokens at startup using ACLED_EMAIL/PASSWORD or disk cache. */
+export async function warmAcledAuth() {
+  if (!hasAcledConfig()) return;
+  const session = await authenticate();
+  if (session.apiAccessDenied) {
+    console.log('[ACLED] OAuth tokens saved to runs/.cache/acled-oauth.json — API read pending account approval');
+    return;
+  }
+  if (session.error) {
+    console.warn('[ACLED] Auth warmup:', session.error.split('\n')[0]);
+    return;
+  }
+  if (session.method === 'oauth' && session.token) {
+    console.log('[ACLED] OAuth ready — bearer token cached (auto-refresh via refresh_token)');
+  }
 }
 
 // Exported for scripts/test-acled.mjs

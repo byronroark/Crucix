@@ -23,6 +23,7 @@ import {
   deleteSource,
 } from './lib/config/custom-sources-store.mjs';
 import { TelegramAlerter } from './lib/alerts/telegram.mjs';
+import { warmAcledAuth } from './apis/sources/acled.mjs';
 import { DiscordAlerter } from './lib/alerts/discord.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -638,6 +639,9 @@ async function start() {
 
     // Run first sweep (refreshes data in background)
     console.log('[Crucix] Running initial sweep...');
+    await warmAcledAuth().catch((err) => {
+      console.warn('[ACLED] Auth warmup error:', err.message);
+    });
     runSweepCycle().catch(err => {
       console.error('[Crucix] Initial sweep failed:', err.message || err);
     });
