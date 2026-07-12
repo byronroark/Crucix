@@ -2374,6 +2374,15 @@ function openMarketWatchlist() {
   syncWatchlistAdminToken();
   saveWatchlistAdminToken();
   loadWatchlistPanel();
+  if (!overlay.dataset.wlBound) {
+    overlay.dataset.wlBound = '1';
+    overlay.addEventListener('click', e => {
+      const editBtn = e.target.closest('.wl-edit-btn');
+      const removeBtn = e.target.closest('.wl-remove-btn');
+      if (editBtn?.dataset.id) editWatchlistSymbol(editBtn.dataset.id);
+      if (removeBtn?.dataset.id) deleteWatchlistSymbol(removeBtn.dataset.id);
+    });
+  }
 }
 
 function closeMarketWatchlist() {
@@ -2398,15 +2407,16 @@ async function loadWatchlistPanel() {
     }
     list.innerHTML = symbols.map(s => {
       const aliases = (s.aliases || []).join(', ');
-      return `<div class="source-card">
+      const sid = cleanText(s.id);
+      return `<div class="source-card" data-watchlist-id="${sid}">
         <div class="source-card-head"><div class="source-card-title">${cleanText(s.symbol)} — ${cleanText(s.name || s.symbol)}</div></div>
         <div class="source-card-meta">
           <span class="source-tag">${cleanText(String(s.assetClass || 'stock').toUpperCase())}</span>
           ${aliases ? `<span class="source-tag">${cleanText(aliases)}</span>` : ''}
         </div>
         <div class="sources-actions" style="margin-top:8px">
-          <button class="sources-btn" type="button" onclick="editWatchlistSymbol(${JSON.stringify(s.id)})">Edit</button>
-          <button class="sources-btn danger" type="button" onclick="deleteWatchlistSymbol(${JSON.stringify(s.id)})">Remove</button>
+          <button class="sources-btn wl-edit-btn" type="button" data-id="${sid}">Edit</button>
+          <button class="sources-btn danger wl-remove-btn" type="button" data-id="${sid}">Remove</button>
         </div>
       </div>`;
     }).join('');
@@ -2484,6 +2494,11 @@ async function saveWatchlistSymbol() {
 async function deleteWatchlistSymbol(id) {
   if (!confirm('Remove this symbol from the watchlist?')) return;
   saveWatchlistAdminToken();
+  if (watchlistAdminRequired && !getAdminToken() && !document.getElementById('wlAdminToken')?.value?.trim()) {
+    showWatchlistToast('Admin token required — paste ADMIN_TOKEN from .env');
+    document.getElementById('wlAdminTokenField').style.display = 'block';
+    return;
+  }
   try {
     const res = await fetch(`/api/config/market-watchlist/${encodeURIComponent(id)}`, {
       method: 'DELETE',
