@@ -21,6 +21,8 @@ import {
   addSymbol,
   updateSymbol,
   deleteSymbol,
+  normalizeSymbol,
+  getDefaultMarketIntelSymbols,
 } from './lib/config/market-watchlist-store.mjs';
 import {
   loadLastSweepAt,
@@ -472,7 +474,20 @@ app.delete('/api/config/sources/:id', requireAdmin, async (req, res) => {
 // === Market Watchlist API ===
 
 app.get('/api/config/market-watchlist', (req, res) => {
-  res.json({ symbols: listWatchlist(), adminRequired: Boolean(config.adminToken) });
+  res.json({
+    symbols: listWatchlist(),
+    defaults: getDefaultMarketIntelSymbols(),
+    adminRequired: Boolean(config.adminToken),
+  });
+});
+
+app.get('/api/config/market-watchlist/normalize', (req, res) => {
+  const result = normalizeSymbol(
+    req.query.symbol || '',
+    req.query.assetClass || 'stock',
+    req.query.quoteCurrency || 'USD',
+  );
+  res.json(result);
 });
 
 app.post('/api/config/market-watchlist/refresh', async (req, res) => {
@@ -485,7 +500,7 @@ app.post('/api/config/market-watchlist/test', requireAdmin, async (req, res) => 
   const body = req.body || {};
   if (!body.symbol) return res.status(400).json({ error: 'symbol is required' });
   try {
-    const result = await testSymbol(body.symbol, body.assetClass || 'stock');
+    const result = await testSymbol(body.symbol, body.assetClass || 'stock', body.quoteCurrency || 'USD');
     if (!result.ok) return res.status(400).json(result);
     res.json(result);
   } catch (err) {

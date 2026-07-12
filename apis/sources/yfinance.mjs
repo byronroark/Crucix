@@ -2,9 +2,11 @@
 // Core symbols always fetched; user watchlist symbols fetched additionally.
 
 import { safeFetch } from '../utils/fetch.mjs';
-import { loadWatchlist } from '../../lib/config/market-watchlist-store.mjs';
+import { loadWatchlist, isDefaultMarketIntelSymbol } from '../../lib/config/market-watchlist-store.mjs';
 
 const BASE = 'https://query1.finance.yahoo.com/v8/finance/chart';
+
+export const DEFAULT_CRYPTO_SYMBOLS = ['BTC-USD', 'XRP-USD', 'XLM-USD', 'ETH-USD'];
 
 // Core macro panel symbols — always on
 export const CORE_SYMBOLS = {
@@ -87,9 +89,9 @@ export async function fetchQuote(symbol, nameMap = null) {
 }
 
 /** Test a symbol before adding to watchlist. */
-export async function testSymbol(symbol, assetClass = 'stock') {
+export async function testSymbol(symbol, assetClass = 'stock', quoteCurrency = 'USD') {
   const { normalizeSymbol } = await import('../../lib/config/market-watchlist-store.mjs');
-  const { symbol: sym } = normalizeSymbol(symbol, assetClass);
+  const { symbol: sym } = normalizeSymbol(symbol, assetClass, quoteCurrency);
   const q = await fetchQuote(sym, { [sym]: sym });
   if (!q || q.error) return { ok: false, error: q?.error || 'symbol not found' };
   return { ok: true, quote: q };
@@ -127,7 +129,7 @@ export async function collect() {
 
   const coreSymSet = new Set(Object.keys(CORE_SYMBOLS));
   const tracked = watchlist
-    .filter(w => !coreSymSet.has(w.symbol))
+    .filter(w => !coreSymSet.has(w.symbol) && !isDefaultMarketIntelSymbol(w.symbol))
     .map(w => quotes[w.symbol])
     .filter(q => q && !q.error);
 
@@ -143,7 +145,7 @@ export async function collect() {
     indexes: pickGroup(quotes, ['^GSPC', '^IXIC', '^DJI', '^RUT']),
     rates: pickGroup(quotes, ['TLT', 'HYG', 'LQD']),
     commodities: pickGroup(quotes, ['GC=F', 'SI=F', 'CL=F', 'BZ=F', 'NG=F']),
-    crypto: pickGroup(quotes, ['BTC-USD', 'XRP-USD', 'XLM-USD', 'ETH-USD']),
+    crypto: pickGroup(quotes, DEFAULT_CRYPTO_SYMBOLS),
     volatility: pickGroup(quotes, ['^VIX']),
     tracked,
     watchlistSymbols: [...watchlistSyms],

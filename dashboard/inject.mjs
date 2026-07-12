@@ -11,7 +11,8 @@ import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import config from '../crucix.config.mjs';
 import { loadMergedSources } from '../lib/config/custom-sources-store.mjs';
-import { loadMarketIntelSymbols } from '../lib/config/market-watchlist-store.mjs';
+import { loadMarketIntelSymbols, normalizeSymbol, isDefaultMarketIntelSymbol } from '../lib/config/market-watchlist-store.mjs';
+import { DEFAULT_CRYPTO_SYMBOLS } from '../apis/sources/yfinance.mjs';
 import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
 import { geoTagText, RSS_SOURCE_FALLBACKS } from '../lib/geocode/keywords.mjs';
@@ -549,6 +550,23 @@ export async function synthesize(data) {
   // === Yahoo Finance live market data ===
   const yfData = data.sources.YFinance || {};
   const yfQuotes = yfData.quotes || {};
+  const mapQuoteTile = q => ({
+    symbol: q.symbol,
+    name: q.name,
+    price: q.price,
+    change: q.change,
+    changePct: q.changePct,
+    history: q.history || [],
+  });
+  const findCryptoQuote = (sym) => {
+    const fromCrypto = (yfData.crypto || []).find(q => q.symbol === sym);
+    if (fromCrypto) return fromCrypto;
+    const fromQuotes = yfQuotes[sym];
+    if (fromQuotes && !fromQuotes.error) return fromQuotes;
+    return (yfData.tracked || []).find(q => normalizeSymbol(q.symbol, 'crypto').symbol === sym) || null;
+  };
+  const cryptoTiles = DEFAULT_CRYPTO_SYMBOLS.map(findCryptoQuote).filter(Boolean).map(mapQuoteTile);
+  const cryptoSymSet = new Set(DEFAULT_CRYPTO_SYMBOLS);
   const markets = {
     // Raw symbol-keyed map so the dashboard can look up specific tickers
     // (e.g. GC=F, SI=F for the Gold/Silver tiles).
@@ -565,16 +583,18 @@ export async function synthesize(data) {
       symbol: q.symbol, name: q.name, price: q.price,
       change: q.change, changePct: q.changePct, history: q.history || []
     })),
-    crypto: (yfData.crypto || []).map(q => ({
-      symbol: q.symbol, name: q.name, price: q.price,
-      change: q.change, changePct: q.changePct, history: q.history || []
-    })),
+    crypto: cryptoTiles,
     vix: yfQuotes['^VIX'] ? {
       value: yfQuotes['^VIX'].price,
       change: yfQuotes['^VIX'].change,
       changePct: yfQuotes['^VIX'].changePct,
     } : null,
-    tracked: (yfData.tracked || []).map(q => ({
+    tracked: (yfData.tracked || [])
+      .filter(q => {
+        const norm = normalizeSymbol(q.symbol, 'crypto').symbol;
+        return !cryptoSymSet.has(norm) && !isDefaultMarketIntelSymbol(norm);
+      })
+      .map(q => ({
       symbol: q.symbol, name: q.name, price: q.price,
       change: q.change, changePct: q.changePct, history: q.history || [],
       assetClass: q.symbol.includes('-USD') ? 'crypto' : 'stock',

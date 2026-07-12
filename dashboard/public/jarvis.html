@@ -511,7 +511,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
       <div>
         <div class="glossary-kicker">Market Watchlist</div>
         <div class="glossary-title">Track stocks &amp; crypto</div>
-        <div class="glossary-sub">Add symbols for extra price tiles and news. BTC, ETH, XRP, XLM, Gold, and Silver are always on the dashboard.</div>
+        <div class="glossary-sub">Add symbols for extra price tiles and tracked news. Built-in crypto and metals below always run Yahoo Finance + Market Intelligence.</div>
       </div>
       <button class="glossary-close" onclick="closeMarketWatchlist()" aria-label="Close watchlist settings">&times;</button>
     </div>
@@ -522,10 +522,15 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
       </div>
       <input type="hidden" id="wlEditId" value="">
       <div style="display:grid;grid-template-columns:1fr 120px;gap:10px">
-        <div class="sources-field"><label>Symbol</label><input id="wlSymbol" placeholder="AAPL, NVDA, BTC, SOL"></div>
+        <div class="sources-field"><label>Symbol</label><input id="wlSymbol" placeholder="AAPL, NVDA, SOL" onblur="normalizeWatchlistInput()" onchange="normalizeWatchlistInput()"></div>
         <div class="sources-field"><label>Type</label>
-          <select id="wlAssetClass"><option value="stock">Stock</option><option value="crypto">Crypto</option></select>
+          <select id="wlAssetClass" onchange="syncWatchlistAssetClassFields(); normalizeWatchlistInput();"><option value="stock">Stock</option><option value="crypto">Crypto</option></select>
         </div>
+      </div>
+      <div class="sources-field" id="wlQuoteCurrencyRow" style="display:none">
+        <label>Quote currency</label>
+        <input id="wlQuoteCurrency" value="" maxlength="3" placeholder="USD" onblur="normalizeWatchlistInput()" onchange="normalizeWatchlistInput()">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:4px">Defaults to USD when blank. Override for pairs like SOL-EUR — test before saving.</div>
       </div>
       <div class="sources-field"><label>Display name (optional)</label><input id="wlName" placeholder="Apple Inc."></div>
       <div class="sources-field"><label>News aliases (comma-separated, optional)</label><input id="wlAliases" placeholder="Apple, Apple Inc"></div>
@@ -536,8 +541,13 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
       </div>
       <div class="sources-test-out" id="wlTestOut" style="display:none"></div>
     </div>
+    <div class="wl-defaults-panel" id="wlDefaultsPanel" style="margin:0 0 14px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(0,0,0,0.18)">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--dim);letter-spacing:1px;margin-bottom:6px">ALWAYS MONITORED</div>
+      <div id="wlDefaultChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.45">Built-in symbols fetch Yahoo Finance tiles and scoped GDELT news for Market Intelligence (LLM when enabled). Add more below for extra tracked tiles.</div>
+    </div>
     <div class="sources-list" id="watchlistList"><div style="color:var(--dim);font-family:var(--mono);font-size:11px">Loading watchlist…</div></div>
-    <div class="glossary-foot">Stored in runs/config/market-watchlist.json. News is fetched only for symbols you add here.</div>
+    <div class="glossary-foot">User symbols stored in runs/config/market-watchlist.json. Built-in BTC, XRP, XLM, ETH, Gold, and Silver do not need to be added.</div>
   </div>
 </div>
 <div class="sources-toast" id="watchlistToast"></div>
@@ -2314,13 +2324,66 @@ function showWatchlistToast(msg) {
   setTimeout(() => t.classList.remove('show'), 3200);
 }
 
+function getWatchlistQuoteCurrency() {
+  return (document.getElementById('wlQuoteCurrency')?.value.trim() || 'USD').toUpperCase();
+}
+
 function watchlistFormPayload() {
-  return {
+  const assetClass = document.getElementById('wlAssetClass').value || 'stock';
+  const payload = {
     symbol: document.getElementById('wlSymbol').value.trim(),
     name: document.getElementById('wlName').value.trim(),
-    assetClass: document.getElementById('wlAssetClass').value || 'stock',
+    assetClass,
     aliases: document.getElementById('wlAliases').value.trim(),
   };
+  if (assetClass === 'crypto') payload.quoteCurrency = getWatchlistQuoteCurrency();
+  return payload;
+}
+
+function syncWatchlistAssetClassFields() {
+  const isCrypto = document.getElementById('wlAssetClass')?.value === 'crypto';
+  const row = document.getElementById('wlQuoteCurrencyRow');
+  if (row) row.style.display = isCrypto ? 'block' : 'none';
+}
+
+function renderWatchlistDefaults(defaults) {
+  const chips = document.getElementById('wlDefaultChips');
+  if (!chips) return;
+  const items = Array.isArray(defaults) ? defaults : [];
+  if (!items.length) {
+    chips.innerHTML = '<span style="color:var(--dim);font-family:var(--mono);font-size:11px">BTC-USD, XRP-USD, XLM-USD, ETH-USD, GC=F, SI=F</span>';
+    return;
+  }
+  chips.innerHTML = items.map(d => {
+    const sym = cleanText(d.symbol || '');
+    const name = cleanText(d.name || sym);
+    const kind = d.assetClass === 'crypto' ? 'CRYPTO' : (d.assetClass === 'commodity' ? 'METAL' : 'DEFAULT');
+    return `<span class="source-tag" title="${name} — Yahoo Finance + Market Intelligence">${sym} <span style="opacity:0.65">${kind}</span></span>`;
+  }).join('');
+}
+
+async function normalizeWatchlistInput() {
+  const input = document.getElementById('wlSymbol');
+  if (!input) return;
+  const symbol = input.value.trim();
+  if (!symbol) return;
+  const assetClass = document.getElementById('wlAssetClass')?.value || 'stock';
+  const quoteCurrency = getWatchlistQuoteCurrency();
+  try {
+    const params = { symbol, assetClass };
+    if (assetClass === 'crypto') params.quoteCurrency = quoteCurrency;
+    const res = await fetch(`/api/config/market-watchlist/normalize?${new URLSearchParams(params)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.symbol) return;
+    const clsEl = document.getElementById('wlAssetClass');
+    const quoteEl = document.getElementById('wlQuoteCurrency');
+    if (data.base) input.value = data.base;
+    else if (data.symbol !== symbol) input.value = data.symbol;
+    if (clsEl && data.assetClass) clsEl.value = data.assetClass;
+    if (quoteEl && data.quoteCurrency) quoteEl.value = data.quoteCurrency === 'USD' ? '' : data.quoteCurrency;
+    syncWatchlistAssetClassFields();
+  } catch (_) { /* non-fatal */ }
 }
 
 function resetWatchlistForm() {
@@ -2328,7 +2391,9 @@ function resetWatchlistForm() {
   document.getElementById('wlSymbol').value = '';
   document.getElementById('wlName').value = '';
   document.getElementById('wlAssetClass').value = 'stock';
+  document.getElementById('wlQuoteCurrency').value = '';
   document.getElementById('wlAliases').value = '';
+  syncWatchlistAssetClassFields();
   const saveBtn = document.getElementById('wlSaveBtn');
   if (saveBtn) saveBtn.textContent = 'Add symbol';
   const out = document.getElementById('wlTestOut');
@@ -2391,6 +2456,7 @@ function openMarketWatchlist() {
   if (!overlay) return;
   overlay.classList.add('show');
   document.body.style.overflow = 'hidden';
+  syncWatchlistAssetClassFields();
   syncWatchlistAdminToken();
   saveWatchlistAdminToken();
   loadWatchlistPanel();
@@ -2419,19 +2485,24 @@ async function loadWatchlistPanel() {
     const res = await fetch('/api/config/market-watchlist');
     const data = await res.json();
     watchlistAdminRequired = Boolean(data.adminRequired);
+    renderWatchlistDefaults(data.defaults);
     document.getElementById('wlAdminTokenField').style.display = watchlistAdminRequired ? 'block' : 'none';
     const symbols = data.symbols || [];
+    const defaultsHdr = '<div style="font-family:var(--mono);font-size:9px;color:var(--dim);letter-spacing:1px;margin:0 0 8px">YOUR TRACKED SYMBOLS</div>';
     if (!symbols.length) {
-      list.innerHTML = '<div style="color:var(--dim);font-family:var(--mono);font-size:11px">No symbols tracked yet.</div>';
+      list.innerHTML = `${defaultsHdr}<div style="color:var(--dim);font-family:var(--mono);font-size:11px">No extra symbols tracked yet.</div>`;
       return;
     }
-    list.innerHTML = symbols.map(s => {
+    list.innerHTML = defaultsHdr + symbols.map(s => {
       const aliases = (s.aliases || []).join(', ');
       const sid = cleanText(s.id);
+      const quoteTag = s.assetClass === 'crypto' && s.quoteCurrency && s.quoteCurrency !== 'USD'
+        ? `<span class="source-tag">${cleanText(s.quoteCurrency)}</span>` : '';
       return `<div class="source-card" data-watchlist-id="${sid}">
         <div class="source-card-head"><div class="source-card-title">${cleanText(s.symbol)} — ${cleanText(s.name || s.symbol)}</div></div>
         <div class="source-card-meta">
           <span class="source-tag">${cleanText(String(s.assetClass || 'stock').toUpperCase())}</span>
+          ${quoteTag}
           ${aliases ? `<span class="source-tag">${cleanText(aliases)}</span>` : ''}
         </div>
         <div class="sources-actions" style="margin-top:8px">
@@ -2450,10 +2521,20 @@ function editWatchlistSymbol(id) {
     const s = (data.symbols || []).find(x => x.id === id);
     if (!s) return;
     document.getElementById('wlEditId').value = s.id;
-    document.getElementById('wlSymbol').value = s.symbol || '';
-    document.getElementById('wlName').value = s.name || '';
     document.getElementById('wlAssetClass').value = s.assetClass || 'stock';
+    if ((s.assetClass || 'stock') === 'crypto') {
+      const parts = String(s.symbol || '').match(/^([A-Z0-9]+)-([A-Z]{3})$/);
+      document.getElementById('wlSymbol').value = parts ? parts[1] : (s.symbol || '');
+      document.getElementById('wlQuoteCurrency').value = (s.quoteCurrency && s.quoteCurrency !== 'USD')
+        ? s.quoteCurrency
+        : (parts && parts[2] && parts[2] !== 'USD' ? parts[2] : '');
+    } else {
+      document.getElementById('wlSymbol').value = s.symbol || '';
+      document.getElementById('wlQuoteCurrency').value = '';
+    }
+    document.getElementById('wlName').value = s.name || '';
     document.getElementById('wlAliases').value = Array.isArray(s.aliases) ? s.aliases.join(', ') : '';
+    syncWatchlistAssetClassFields();
     const saveBtn = document.getElementById('wlSaveBtn');
     if (saveBtn) saveBtn.textContent = 'Save changes';
     document.getElementById('watchlistForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2461,6 +2542,7 @@ function editWatchlistSymbol(id) {
 }
 
 async function testWatchlistSymbol() {
+  await normalizeWatchlistInput();
   const payload = watchlistFormPayload();
   const out = document.getElementById('wlTestOut');
   if (!payload.symbol) { showWatchlistToast('Enter a symbol first'); return; }
@@ -2476,13 +2558,16 @@ async function testWatchlistSymbol() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || (data.errors && data.errors[0]) || 'Test failed');
     const q = data.quote;
-    out.innerHTML = `<strong style="color:var(--accent)">OK</strong> — ${cleanText(q.name)} @ $${q.price} (${q.changePct >= 0 ? '+' : ''}${q.changePct}%)`;
+    const pair = cleanText(q.symbol || payload.symbol);
+    const priceLabel = q.currency && q.currency !== 'USD' ? `${q.price} ${cleanText(q.currency)}` : `$${q.price}`;
+    out.innerHTML = `<strong style="color:var(--accent)">OK</strong> — ${cleanText(q.name)} (${pair}) @ ${priceLabel} (${q.changePct >= 0 ? '+' : ''}${q.changePct}%)`;
   } catch (e) {
     out.innerHTML = `<span style="color:#ffb0b2">${cleanText(e.message)}</span>`;
   }
 }
 
 async function saveWatchlistSymbol() {
+  await normalizeWatchlistInput();
   const payload = watchlistFormPayload();
   if (!payload.symbol) { showWatchlistToast('Enter a symbol first'); return; }
   const editId = document.getElementById('wlEditId').value.trim();
