@@ -159,7 +159,15 @@
     "orbital": "ORBITAL",
     "usgs": "USGS",
     "florida": "FLORIDE",
-    "liveRadar": "RADAR EN DIRECT"
+    "liveRadar": "RADAR EN DIRECT",
+    "radarLoop": "BOUCLE RADAR"
+  },
+  "weather": {
+    "play": "Lecture",
+    "pause": "Pause",
+    "prev": "Précédent",
+    "speed": "Vitesse",
+    "frameTime": "Heure de l'image"
   },
   "delta": {
     "baseline": "RÉFÉRENCE",

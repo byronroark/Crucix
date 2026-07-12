@@ -138,6 +138,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .lp-weather-panel .weather-radar-map .leaflet-container{background:#0a1418;font-family:var(--mono)}
 .weather-alert-row{font-family:var(--mono);font-size:9px;padding:4px 0;border-top:1px solid rgba(255,255,255,0.04);color:var(--dim);line-height:1.35}
 .weather-alert-row.extreme{color:var(--danger)}
+.weather-radar-controls{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+.weather-radar-controls .weather-radar-btn{min-width:28px;padding:2px 8px;font-size:11px;line-height:1.2}
+.weather-radar-scrub{flex:1;min-width:60px;height:4px;accent-color:var(--accent);cursor:pointer}
+.weather-radar-time{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:52px;white-space:nowrap}
+.weather-radar-speed{font-family:var(--mono);font-size:9px;background:rgba(0,0,0,0.5);border:1px solid var(--border);color:var(--dim);padding:2px 4px;border-radius:2px}
+body.low-perf .weather-radar-controls{display:none}
 .map-ctrl-btn svg{display:block}
 .map-layer-panel{position:absolute;top:96px;left:12px;z-index:7;width:min(240px,calc(100vw - 24px));max-height:min(52vh,420px);overflow:auto;border:1px solid var(--border);background:rgba(0,0,0,0.88);backdrop-filter:blur(10px);padding:8px;display:none;flex-direction:column;gap:4px}
 .map-layer-panel.show{display:flex}
@@ -1141,7 +1147,16 @@ function bindMapLifecycleEvents(){
   window.addEventListener('resize', () => syncResponsiveLayout());
   window.addEventListener('orientationchange', () => setTimeout(() => syncResponsiveLayout(true), 150));
   document.addEventListener('visibilitychange', () => {
-    if(!document.hidden) setTimeout(() => syncResponsiveLayout(true), 150);
+    if (!document.hidden) {
+      setTimeout(() => syncResponsiveLayout(true), 150);
+      if (_weatherRadarLoop?.resumeAfterHide) {
+        _weatherRadarLoop.resumeAfterHide = false;
+        _weatherRadarLoop.play();
+      }
+    } else if (_weatherRadarLoop?.playing) {
+      _weatherRadarLoop.resumeAfterHide = true;
+      _weatherRadarLoop.pause();
+    }
   });
   window.addEventListener('pageshow', () => setTimeout(() => syncResponsiveLayout(true), 150));
 }
@@ -1983,8 +1998,117 @@ function mkSparkSvg(values, isGood){
 
 // === LOWER GRID ===
 let _weatherRadarMap = null;
+let _weatherRadarLoop = null;
+
+class WeatherRadarLoop {
+  constructor(map, opts = {}) {
+    this.map = map;
+    this.opacity = opts.opacity ?? 0.65;
+    this.maxZoom = opts.maxZoom ?? 12;
+    this.baseInterval = opts.baseInterval ?? 1000;
+    this.onFrame = opts.onFrame || (() => {});
+    this.host = 'https://tilecache.rainviewer.com';
+    this.frames = [];
+    this.index = 0;
+    this.speed = 1;
+    this.playing = false;
+    this.resumeAfterHide = false;
+    this.timer = null;
+    this.layer = null;
+  }
+
+  frameUrl(frame) {
+    return `${this.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+  }
+
+  async loadManifest() {
+    const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    const data = await resp.json();
+    this.host = data.host || this.host;
+    this.frames = data?.radar?.past || [];
+    if (!this.frames.length) return false;
+    this.index = this.frames.length - 1;
+    this.layer = L.tileLayer(this.frameUrl(this.frames[this.index]), {
+      opacity: this.opacity,
+      maxZoom: this.maxZoom,
+    }).addTo(this.map);
+    this.onFrame(this.index, this.frames[this.index]);
+    return true;
+  }
+
+  showFrame(i) {
+    if (!this.frames.length || !this.layer) return;
+    this.index = ((i % this.frames.length) + this.frames.length) % this.frames.length;
+    const frame = this.frames[this.index];
+    this.layer.setUrl(this.frameUrl(frame));
+    this.onFrame(this.index, frame);
+  }
+
+  play() {
+    if (!this.frames.length || this.playing) return;
+    this.playing = true;
+    this.onFrame(this.index, this.frames[this.index]);
+    this.scheduleTick();
+  }
+
+  pause() {
+    this.playing = false;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.onFrame(this.index, this.frames[this.index]);
+  }
+
+  toggle() {
+    if (this.playing) this.pause();
+    else this.play();
+  }
+
+  scheduleTick() {
+    if (!this.playing) return;
+    this.timer = setTimeout(() => {
+      this.showFrame(this.index + 1);
+      this.scheduleTick();
+    }, this.baseInterval / this.speed);
+  }
+
+  seek(i) {
+    this.showFrame(i);
+  }
+
+  prev() {
+    this.seek(this.index - 1);
+  }
+
+  setSpeed(mult) {
+    this.speed = mult;
+    if (this.playing) {
+      this.pause();
+      this.play();
+    }
+  }
+
+  destroy() {
+    this.pause();
+    if (this.layer) {
+      this.map.removeLayer(this.layer);
+      this.layer = null;
+    }
+    this.frames = [];
+  }
+}
+
+function formatRadarTime(unixSec) {
+  if (!unixSec) return '--:--';
+  return new Date(unixSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 function destroyWeatherRadarMap() {
+  if (_weatherRadarLoop) {
+    _weatherRadarLoop.destroy();
+    _weatherRadarLoop = null;
+  }
   if (_weatherRadarMap) {
     _weatherRadarMap.remove();
     _weatherRadarMap = null;
@@ -2012,22 +2136,6 @@ async function initWeatherRadarMap() {
     maxZoom: 19,
   }).addTo(_weatherRadarMap);
 
-  if (!lowPerfMode) {
-    try {
-      const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-      const data = await resp.json();
-      const past = data?.radar?.past;
-      const frame = past?.length ? past[past.length - 1] : null;
-      if (frame?.path) {
-        const host = data.host || 'https://tilecache.rainviewer.com';
-        L.tileLayer(`${host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
-          opacity: 0.65,
-          maxZoom: 12,
-        }).addTo(_weatherRadarMap);
-      }
-    } catch (_) { /* radar overlay optional */ }
-  }
-
   _weatherRadarMap.fitBounds([[bbox.south, bbox.west], [bbox.north, bbox.east]], { padding: [8, 8] });
 
   for (const a of (wp.alerts || [])) {
@@ -2040,6 +2148,46 @@ async function initWeatherRadarMap() {
       fillOpacity: 0.7,
       weight: 1,
     }).bindPopup(`${cleanText(a.event || '')}<br>${cleanText(a.headline || '')}`).addTo(_weatherRadarMap);
+  }
+
+  if (!lowPerfMode) {
+    const controls = document.getElementById('weatherRadarControls');
+    const scrub = document.getElementById('weatherRadarScrub');
+    const timeEl = document.getElementById('weatherRadarTime');
+    const playBtn = controls?.querySelector('[data-action="play"]');
+    const prevBtn = controls?.querySelector('[data-action="prev"]');
+    const speedSel = document.getElementById('weatherRadarSpeed');
+
+    _weatherRadarLoop = new WeatherRadarLoop(_weatherRadarMap, {
+      onFrame: (idx, frame) => {
+        if (scrub && _weatherRadarLoop?.frames?.length) {
+          scrub.max = String(_weatherRadarLoop.frames.length - 1);
+          scrub.value = String(idx);
+        }
+        if (timeEl) timeEl.textContent = formatRadarTime(frame?.time);
+        if (playBtn) {
+          playBtn.innerHTML = _weatherRadarLoop?.playing ? '&#10074;&#10074;' : '&#9654;';
+          playBtn.title = _weatherRadarLoop?.playing
+            ? t('weather.pause', 'Pause')
+            : t('weather.play', 'Play');
+        }
+      },
+    });
+
+    try {
+      const ok = await _weatherRadarLoop.loadManifest();
+      if (ok) {
+        scrub?.addEventListener('input', () => {
+          _weatherRadarLoop?.seek(parseInt(scrub.value, 10));
+        });
+        playBtn?.addEventListener('click', () => _weatherRadarLoop?.toggle());
+        prevBtn?.addEventListener('click', () => _weatherRadarLoop?.prev());
+        speedSel?.addEventListener('change', () => {
+          _weatherRadarLoop?.setSpeed(parseFloat(speedSel.value) || 1);
+        });
+        _weatherRadarLoop.play();
+      }
+    } catch (_) { /* radar loop optional */ }
   }
 
   setTimeout(() => _weatherRadarMap?.invalidateSize(), 120);
@@ -2247,9 +2395,20 @@ function renderLower(){
     `<div class="weather-alert-row${a.severity === 'Extreme' ? ' extreme' : ''}">${cleanText(a.event || '')}${a.areas ? ` · ${cleanText(a.areas)}` : ''}</div>`
   ).join('');
   const weatherPanel = wp ? `<div class="g-panel lp-weather-panel" style="display:flex;flex-direction:column">
-      <div class="sec-head"><h3>${t('panels.localWeatherRadar','Local Weather Radar')}</h3><span class="badge" style="color:#ff8a65;border-color:rgba(255,138,101,0.4)">${wp.regionLabel || ''}</span><span class="badge">${t('badges.liveRadar','LIVE RADAR')}</span></div>
+      <div class="sec-head"><h3>${t('panels.localWeatherRadar','Local Weather Radar')}</h3><span class="badge" style="color:#ff8a65;border-color:rgba(255,138,101,0.4)">${wp.regionLabel || ''}</span><span class="badge">${lowPerfMode ? t('badges.liveRadar','LIVE RADAR') : t('badges.radarLoop','RADAR LOOP')}</span></div>
       ${weatherEmergency}
       <div id="weatherRadarMap" class="weather-radar-map"></div>
+      ${lowPerfMode ? '' : `<div class="weather-radar-controls" id="weatherRadarControls">
+        <button type="button" class="guide-btn weather-radar-btn" data-action="prev" title="${t('weather.prev','Previous')}">&#9664;</button>
+        <button type="button" class="guide-btn weather-radar-btn" data-action="play" title="${t('weather.play','Play')}">&#9654;</button>
+        <input type="range" class="weather-radar-scrub" id="weatherRadarScrub" min="0" max="0" value="0" aria-label="${t('weather.frameTime','Frame time')}">
+        <span class="weather-radar-time" id="weatherRadarTime">--:--</span>
+        <select class="weather-radar-speed" id="weatherRadarSpeed" title="${t('weather.speed','Speed')}">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+        </select>
+      </div>`}
       ${weatherAlertRows}
     </div>` : '';
   const tickerColumn = `<div class="lp-ticker-col">${tickerPanel}${localTickerPanel}${weatherPanel}</div>`;

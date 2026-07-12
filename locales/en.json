@@ -159,7 +159,15 @@
     "orbital": "ORBITAL",
     "usgs": "USGS",
     "florida": "FLORIDA",
-    "liveRadar": "LIVE RADAR"
+    "liveRadar": "LIVE RADAR",
+    "radarLoop": "RADAR LOOP"
+  },
+  "weather": {
+    "play": "Play",
+    "pause": "Pause",
+    "prev": "Previous",
+    "speed": "Speed",
+    "frameTime": "Frame time"
   },
   "delta": {
     "baseline": "BASELINE",
