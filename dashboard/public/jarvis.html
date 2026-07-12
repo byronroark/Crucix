@@ -121,6 +121,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .map-ctrl-btn:hover{color:var(--accent);border-color:var(--border-bright);background:rgba(100,240,200,0.06)}
 .map-ctrl-btn.map-toggle{font-size:14px}
 .map-ctrl-btn.off{opacity:0.4}
+.hurricane-model-select{display:none;margin-top:2px;width:28px;min-width:120px;height:28px;border:1px solid var(--border);background:rgba(0,0,0,0.75);color:var(--dim);font-size:10px;font-family:var(--mono);padding:0 4px;backdrop-filter:blur(8px)}
+.hurricane-model-select:focus{outline:none;border-color:var(--border-bright);color:var(--accent)}
+.emergency-strip{margin:0 0 8px;padding:8px 10px;border:1px solid rgba(255,152,0,0.35);background:rgba(255,152,0,0.06);font-family:var(--mono);font-size:10px;color:var(--text);line-height:1.45}
+.emergency-strip b{color:#ff9800}
 .map-ctrl-btn svg{display:block}
 .map-layer-panel{position:absolute;top:96px;left:12px;z-index:7;width:min(240px,calc(100vw - 24px));max-height:min(52vh,420px);overflow:auto;border:1px solid var(--border);background:rgba(0,0,0,0.88);backdrop-filter:blur(10px);padding:8px;display:none;flex-direction:column;gap:4px}
 .map-layer-panel.show{display:flex}
@@ -416,6 +420,8 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
           <button class="map-ctrl-btn" onclick="mapZoom(1.5)" title="Zoom in">+</button>
           <button class="map-ctrl-btn" onclick="mapZoom(0.67)" title="Zoom out">&minus;</button>
           <button class="map-ctrl-btn map-toggle" id="flightToggle" onclick="toggleFlights()" title="Toggle flight routes">&#9992;</button>
+          <button class="map-ctrl-btn map-toggle off" id="hurricaneToggle" onclick="toggleHurricaneOverlay()" title="Hurricane tracks and cone">&#127786;</button>
+          <select id="hurricaneModelSelect" class="hurricane-model-select" onchange="setHurricaneModel(this.value)" title="Hurricane forecast model"></select>
           <button class="map-ctrl-btn map-toggle" id="layerFilterToggle" onclick="toggleLayerFilterPanel(event)" title="Toggle map layers">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
           </button>
@@ -573,6 +579,18 @@ function t(keyPath, fallback) {
 let globe = null;
 let globeInitialized = false;
 let flightsVisible = true;
+let hurricaneOverlayVisible = localStorage.getItem('crucix.hurricaneOverlay') === 'true';
+let hurricaneModel = localStorage.getItem('crucix.hurricaneModel') || 'official';
+const HURRICANE_MODEL_OPTIONS = {
+  official: 'Official NHC',
+  ecmwf: 'ECMWF (European)',
+  gfs: 'GFS',
+  hafs: 'HAFS',
+  ukmet: 'UKMET',
+  cmc: 'Canadian (CMC)',
+  consensus: 'Consensus',
+  spaghetti: 'Spaghetti (all models)',
+};
 const AIR_LAYER = { id: 'air', labelKey: 'map.airTraffic', color: '#64f0c8' };
 const MAP_LAYERS = [
   { id: 'thermal', labelKey: 'map.thermalFire', color: '#ff5f63' },
@@ -584,6 +602,7 @@ const MAP_LAYERS = [
   { id: 'health', labelKey: 'map.healthAlert', color: '#69f0ae' },
   { id: 'news', labelKey: 'map.worldNews', color: '#81d4fa' },
   { id: 'weather', labelKey: 'map.weatherAlert', color: '#ff9800' },
+  { id: 'earthquake', labelKey: 'map.earthquake', color: '#ff4da6' },
   { id: 'radiation', labelKey: 'map.epaRadNet', color: '#cddc39' },
   { id: 'space', labelKey: 'map.spaceStation', color: '#ffffff' },
   { id: 'gdelt', labelKey: 'map.gdeltEvent', color: '#6495ed' },
@@ -951,8 +970,9 @@ function setAllLayers(visible) {
 
 function refreshMapLayers() {
   renderMapLegend();
+  updateHurricaneModelSelect();
   if (isFlat && flatG) {
-    flatG.selectAll('g.markers, g.corridors-layer').remove();
+    flatG.selectAll('g.markers, g.corridors-layer, g.hurricane-layer').remove();
     plotFlatMarkers();
   } else if (globe) {
     plotMarkers();
@@ -963,6 +983,9 @@ function initMap(){
   bindMapLifecycleEvents();
   bindLayerFilterEvents();
   renderMapLegend();
+  const hBtn = document.getElementById('hurricaneToggle');
+  if (hBtn) hBtn.classList.toggle('off', !hurricaneOverlayVisible);
+  updateHurricaneModelSelect();
   if(isFlat){
     if(globe && typeof globe.pauseAnimation === 'function') globe.pauseAnimation();
     document.getElementById('globeViz').style.display = 'none';
@@ -1042,7 +1065,13 @@ function initGlobe(){
     .labelDotRadius(0)
     .labelAltitude(0.012)
     .labelResolution(2)
+    // Hurricane probability cones
+    .polygonCapColor(() => 'rgba(255,152,0,0.10)')
+    .polygonSideColor(() => 'rgba(255,152,0,0.03)')
+    .polygonStrokeColor(() => 'rgba(255,152,0,0.45)')
+    .polygonAltitude(0.008)
     (document.getElementById('globeViz'));
+  globe.polygonGeoJsonGeometry(d => d.polygon);
 
   // Style the WebGL scene
   const scene = globe.scene();
@@ -1217,13 +1246,25 @@ function plotMarkers(){
     });
   });
 
-  // === NOAA severe weather alerts (orange) ===
-  if (layerVisible('weather')) (D.noaa?.alerts||[]).forEach(a=>{
+  // === Unified weather alerts (orange dots: NWS + OWM + hurricanes + tornadoes) ===
+  if (layerVisible('weather')) (D.weatherAlerts?.dots || D.noaa?.alerts || []).forEach(a=>{
+    const src = a.sourceLabel || 'NWS';
+    const meta = a.subtype === 'tornado' ? `${src} · ${a.severity || 'Tornado'}` : `${src} · ${a.severity || ''}`;
     points.push({
-      lat:a.lat, lng:a.lon, size:0.22, alt:0.01,
-      color:'rgba(255,152,0,0.8)', type:'weather', priority:2,
-      popHead:a.event, popMeta:'NOAA/NWS · '+a.severity,
+      lat:a.lat, lng:a.lon, size: a.subtype === 'hurricane' ? 0.32 : 0.22, alt:0.01,
+      color:'rgba(255,152,0,0.8)', type:'weather', priority: a.priority || 2,
+      popHead:a.event, popMeta: meta,
       popText:a.headline||''
+    });
+  });
+
+  // === USGS earthquakes (hot pink) ===
+  if (layerVisible('earthquake')) (D.earthquakes?.events||[]).forEach(e=>{
+    points.push({
+      lat:e.lat, lng:e.lon, size:0.18+Math.min((e.magnitude||4)/10,0.25), alt:0.012,
+      color:'rgba(255,77,166,0.85)', type:'earthquake', priority: e.priority || 2,
+      popHead:`M${e.magnitude} Earthquake`, popMeta:'USGS · '+e.place,
+      popText:`Depth: ${e.depth ?? '?'} km${e.tsunami ? '<br>Tsunami flag' : ''}`
     });
   });
 
@@ -1325,7 +1366,9 @@ function plotMarkers(){
     });
   });
   }
+  arcs.push(...collectHurricaneArcs());
   globe.arcsData(arcs);
+  globe.polygonsData(collectHurricanePolygons());
 
   // Zoom-aware marker sizing: scale markers and labels with camera altitude
   const onGlobeZoom = () => {
@@ -1385,6 +1428,64 @@ function toggleFlights() {
   const btn = document.getElementById('flightToggle');
   btn.classList.toggle('off', !flightsVisible);
   refreshMapLayers();
+}
+
+function updateHurricaneModelSelect() {
+  const sel = document.getElementById('hurricaneModelSelect');
+  if (!sel) return;
+  const models = D.hurricaneTracks?.availableModels || ['official', 'spaghetti'];
+  const show = hurricaneOverlayVisible && (D.hurricaneTracks?.activeCount || 0) > 0;
+  sel.style.display = show ? 'block' : 'none';
+  if (!show) return;
+  const prev = hurricaneModel;
+  sel.innerHTML = models.map(id => `<option value="${id}" ${id === prev ? 'selected' : ''}>${HURRICANE_MODEL_OPTIONS[id] || id}</option>`).join('');
+}
+
+function toggleHurricaneOverlay() {
+  hurricaneOverlayVisible = !hurricaneOverlayVisible;
+  localStorage.setItem('crucix.hurricaneOverlay', hurricaneOverlayVisible ? 'true' : 'false');
+  const btn = document.getElementById('hurricaneToggle');
+  if (btn) btn.classList.toggle('off', !hurricaneOverlayVisible);
+  updateHurricaneModelSelect();
+  refreshMapLayers();
+}
+
+function setHurricaneModel(modelId) {
+  hurricaneModel = modelId || 'official';
+  localStorage.setItem('crucix.hurricaneModel', hurricaneModel);
+  refreshMapLayers();
+}
+
+function collectHurricaneArcs() {
+  if (!hurricaneOverlayVisible) return [];
+  const storms = D.hurricaneTracks?.storms || [];
+  const arcs = [];
+  const model = hurricaneModel || 'official';
+  for (const storm of storms) {
+    if (model === 'official') {
+      arcs.push(...(storm.officialTrack?.arcs || []));
+    } else if (model === 'spaghetti') {
+      for (const mt of Object.values(storm.modelTracks || {})) {
+        arcs.push(...(mt.arcs || []).map(a => ({ ...a, stroke: 0.15 })));
+      }
+    } else {
+      for (const mt of Object.values(storm.modelTracks || {})) {
+        if (mt.modelId === model) arcs.push(...(mt.arcs || []));
+      }
+    }
+  }
+  return arcs;
+}
+
+function collectHurricanePolygons() {
+  if (!hurricaneOverlayVisible) return [];
+  if (hurricaneModel !== 'official' && hurricaneModel !== 'spaghetti') return [];
+  const polys = [];
+  for (const storm of (D.hurricaneTracks?.storms || [])) {
+    const polygon = storm.officialCone?.polygon;
+    if (polygon) polys.push({ polygon, name: storm.name });
+  }
+  return polys;
 }
 
 // === FLAT/GLOBE TOGGLE ===
@@ -1508,8 +1609,15 @@ function plotFlatMarkers(){
   if (layerVisible('news')) (D.news||[]).forEach(n=>{addPt(n.lat,n.lon,3,'rgba(129,212,250,0.6)','rgba(129,212,250,0.2)',ev=>showPopup(ev,n.source+' NEWS',cleanText(n.title),n.region),3)});
   // Custom OSINT sources
   if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{addPt(c.lat,c.lon,3,'rgba(206,147,216,0.7)','rgba(206,147,216,0.25)',ev=>showPopup(ev,(c.source||'CUSTOM').toUpperCase()+' · CUSTOM',cleanText(c.title),c.region||'Custom'),3)});
-  // NOAA weather
-  if (layerVisible('weather')) (D.noaa?.alerts||[]).forEach(a=>{addPt(a.lat,a.lon,4,'rgba(255,152,0,0.7)','rgba(255,152,0,0.3)',ev=>showPopup(ev,a.event,a.headline||'','NOAA/NWS'),2)});
+  // Unified weather dots
+  if (layerVisible('weather')) (D.weatherAlerts?.dots || D.noaa?.alerts || []).forEach(a=>{
+    const src = a.sourceLabel || 'NWS';
+    addPt(a.lat,a.lon,4,'rgba(255,152,0,0.7)','rgba(255,152,0,0.3)',ev=>showPopup(ev,a.event,a.headline||'',src), a.priority || 2);
+  });
+  // Earthquakes
+  if (layerVisible('earthquake')) (D.earthquakes?.events||[]).forEach(e=>{
+    addPt(e.lat,e.lon,3.5+Math.min((e.magnitude||4)/2,4),'rgba(255,77,166,0.75)','rgba(255,77,166,0.25)',ev=>showPopup(ev,`M${e.magnitude} Earthquake`,e.place||'','USGS'), e.priority || 2);
+  });
   // EPA RadNet
   if (layerVisible('radiation')) (D.epa?.stations||[]).forEach(s=>{addPt(s.lat,s.lon,3,'rgba(205,220,57,0.6)','rgba(205,220,57,0.2)',ev=>showPopup(ev,'RadNet: '+s.location,`${s.analyte||'--'}: ${s.result||'--'} ${s.unit||''}`,'EPA'),3)});
   // Space stations
@@ -1549,6 +1657,25 @@ function plotFlatMarkers(){
       const coords=[];for(let k=0;k<=40;k++)coords.push(interp(k/40));
       cG.append('path').datum({type:'Feature',geometry:{type:'LineString',coordinates:coords}}).attr('d',flatPath).attr('fill','none').attr('stroke','rgba(100,240,200,0.15)').attr('stroke-width',0.6);
     })});
+  }
+  // Hurricane track overlays
+  if (hurricaneOverlayVisible && (D.hurricaneTracks?.storms || []).length) {
+    const hG = flatG.append('g').attr('class', 'hurricane-layer');
+    for (const arc of collectHurricaneArcs()) {
+      const interp = d3.geoInterpolate([arc.startLng, arc.startLat], [arc.endLng, arc.endLat]);
+      const coords = [];
+      for (let k = 0; k <= 30; k++) coords.push(interp(k / 30));
+      hG.append('path').datum({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } })
+        .attr('d', flatPath).attr('fill', 'none')
+        .attr('stroke', Array.isArray(arc.color) ? arc.color[0] : 'rgba(255,152,0,0.7)')
+        .attr('stroke-width', Math.max(0.8, (arc.stroke || 0.5) * 2));
+    }
+    for (const poly of collectHurricanePolygons()) {
+      const ring = (poly.polygon?.coordinates?.[0] || []).map(([lon, lat]) => [lon, lat]);
+      if (ring.length < 3) continue;
+      hG.append('path').datum({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] } })
+        .attr('d', flatPath).attr('fill', 'rgba(255,152,0,0.10)').attr('stroke', 'rgba(255,152,0,0.45)').attr('stroke-width', 1);
+    }
   }
 }
 
@@ -1797,6 +1924,18 @@ function renderLower(){
   const osintPanel = mobile ? buildOsintPanel('lp-osint', 240) : '';
   const macroPanel = `<div class="g-panel lp-macro">
       <div class="sec-head"><h3>${t('panels.macroMarkets','Macro + Markets')}</h3><div style="display:flex;gap:6px;align-items:center"><button class="guide-btn" type="button" onclick="openMarketWatchlist()">+ Track</button><span class="badge">${mkt.timestamp?t('badges.live','LIVE'):t('badges.delayed','DELAYED')}</span></div></div>
+      ${(() => {
+        const wa = D.weatherAlerts?.summary || {};
+        const eq = D.earthquakes?.total || 0;
+        const hc = D.hurricaneTracks?.activeCount || wa.hurricanes || 0;
+        const tor = wa.tornadoes48h || 0;
+        if (!hc && !tor && !eq) return '';
+        const parts = [];
+        if (hc) parts.push(`<b>${hc}</b> active hurricane${hc > 1 ? 's' : ''}`);
+        if (tor) parts.push(`<b>${tor}</b> tornado report${tor > 1 ? 's' : ''} (48h)`);
+        if (eq) parts.push(`<b>${eq}</b> earthquake${eq > 1 ? 's' : ''} M${D.earthquakes?.minMagnitude || '4.5'}+`);
+        return `<div class="emergency-strip">${parts.join(' · ')}</div>`;
+      })()}
       ${hasMarkets?`<div style="margin-bottom:8px">
         <div style="font-family:var(--mono);font-size:9px;color:var(--dim);margin-bottom:4px;letter-spacing:1px">INDEXES</div>
         <div class="metrics-row">${indexCards}</div>

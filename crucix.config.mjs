@@ -1,6 +1,7 @@
 // Crucix Configuration — all settings with env var overrides
 
 import "./apis/utils/env.mjs"; // Load .env first
+import { parseRegionEnv } from './lib/weather/region-presets.mjs';
 
 export default {
   port: parseInt(process.env.PORT) || 3117,
@@ -158,6 +159,7 @@ export default {
       acled: 4,
       delta: 5,
       noaa: 3,
+      earthquakes: 2,
       news: 4,
       reliefweb: 4,
       cisa: 4,
@@ -209,6 +211,24 @@ export default {
     { symbol: 'GC=F', name: 'Gold', assetClass: 'commodity', aliases: ['Gold', 'COMEX gold'] },
     { symbol: 'SI=F', name: 'Silver', assetClass: 'commodity', aliases: ['Silver', 'COMEX silver'] },
   ],
+
+  // Weather alerts — NWS (national) + OpenWeather (region-scoped severe only)
+  weatherAlerts: {
+    openWeatherApiKey: process.env.OPENWEATHER_API_KEY || process.env.WEATHER_API_KEY || null,
+    severeRegions: parseRegionEnv(process.env.SEVERE_WEATHER_ALERT_REGIONS, 'FL,GA,AL'),
+    maxMapAlerts: parseInt(process.env.WEATHER_MAX_MAP_ALERTS, 10) || 25,
+  },
+
+  tornadoReports: {
+    regions: parseRegionEnv(process.env.TORNADO_ALERT_REGIONS, 'US-Southeast,Florida'),
+    lookbackHours: parseInt(process.env.TORNADO_LOOKBACK_HOURS, 10) || 48,
+  },
+
+  earthquakes: {
+    enabled: process.env.EARTHQUAKE_ALERTS !== '0',
+    minMagnitude: parseFloat(process.env.EARTHQUAKE_MIN_MAG) || 4.5,
+    feed: process.env.EARTHQUAKE_FEED || 'day',
+  },
 
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
   // Set to null to use built-in defaults.

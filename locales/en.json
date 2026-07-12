@@ -107,6 +107,8 @@
     "earthquake": "Earthquake",
     "disaster": "Disaster",
     "weatherAlert": "Weather Alert",
+    "hurricaneOverlay": "Hurricane Tracks",
+    "hurricaneModel": "Forecast Model",
     "epaRadNet": "EPA RadNet",
     "spaceStation": "Space Station",
     "gdeltEvent": "GDELT Event",

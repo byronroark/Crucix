@@ -17,6 +17,7 @@ import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
 import { geoTagText, RSS_SOURCE_FALLBACKS } from '../lib/geocode/keywords.mjs';
 import { buildCustomGeo } from '../lib/geocode/build-custom-geo.mjs';
+import { mergeWeatherDots } from '../lib/weather/merge-weather-alerts.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -541,10 +542,38 @@ export async function synthesize(data) {
   }));
   const noaa = {
     totalAlerts: data.sources.NOAA?.totalSevereAlerts || 0,
+    summary: data.sources.NOAA?.summary || {},
     alerts: (data.sources.NOAA?.topAlerts || []).filter(a => a.lat != null && a.lon != null).slice(0, 10).map(a => ({
       event: a.event, severity: a.severity, headline: a.headline?.substring(0, 120),
       lat: a.lat, lon: a.lon
     }))
+  };
+
+  const nhcData = data.sources['NHC-Hurricanes'] || {};
+  const spcData = data.sources['SPC-Tornado'] || {};
+  const owmData = data.sources.OpenWeather || {};
+  const usgsData = data.sources['USGS-Earthquakes'] || {};
+
+  const weatherAlerts = mergeWeatherDots({
+    nwsAlerts: data.sources.NOAA?.alerts || [],
+    openWeatherAlerts: owmData.alerts || [],
+    hurricanePositions: nhcData.positions || [],
+    tornadoReports: spcData.reports || [],
+    maxAlerts: config.weatherAlerts?.maxMapAlerts || 25,
+  });
+
+  const hurricaneTracks = {
+    storms: nhcData.storms || [],
+    activeCount: nhcData.activeCount || 0,
+    availableModels: nhcData.availableModels || ['official', 'spaghetti'],
+    defaultModel: nhcData.defaultModel || 'official',
+    timestamp: nhcData.timestamp || null,
+  };
+
+  const earthquakes = config.earthquakes?.enabled === false ? { total: 0, events: [] } : {
+    total: usgsData.total || 0,
+    minMagnitude: usgsData.minMagnitude || 4.5,
+    events: (usgsData.events || []).filter(e => e.lat != null && e.lon != null),
   };
 
   // EPA RadNet — pass through geo-tagged readings
@@ -734,7 +763,7 @@ export async function synthesize(data) {
     },
     sdr: { total: sdrNet.totalReceivers || 0, online: sdrNet.online || 0, zones: sdrZones },
     tg: { posts: tgData.totalPosts || 0, urgent: tgUrgent, topPosts: tgTop },
-    who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news,
+    who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, weatherAlerts, hurricaneTracks, earthquakes, epa, acled, gdelt, space, health, news,
     reliefweb, cisa, cloudflare, patents, bluesky, reddit, sanctions, adsb,
     markets, // Live Yahoo Finance market data
     marketNews,

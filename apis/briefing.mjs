@@ -30,6 +30,10 @@ import { briefing as comtrade } from './sources/comtrade.mjs';
 
 // === Tier 3: Weather, Environment, Technology, Social ===
 import { briefing as noaa } from './sources/noaa.mjs';
+import { briefing as nhcHurricanes } from './sources/nhc-hurricanes.mjs';
+import { briefing as spcTornado } from './sources/spc-tornado-reports.mjs';
+import { briefing as openWeatherAlerts } from './sources/openweather-alerts.mjs';
+import { briefing as usgsEarthquakes } from './sources/usgs-earthquakes.mjs';
 import { briefing as epa } from './sources/epa.mjs';
 import { briefing as patents } from './sources/patents.mjs';
 import { briefing as bluesky } from './sources/bluesky.mjs';
@@ -72,7 +76,7 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 31 sources (incl. custom)...');
+  console.error('[Crucix] Starting intelligence sweep — 35 sources (incl. custom)...');
   const start = Date.now();
 
   const allPromises = [
@@ -100,6 +104,10 @@ export async function fullBriefing() {
 
     // Tier 3: Weather, Environment, Technology, Social
     runSource('NOAA', noaa),
+    runSource('NHC-Hurricanes', nhcHurricanes),
+    runSource('SPC-Tornado', spcTornado),
+    runSource('OpenWeather', openWeatherAlerts),
+    runSource('USGS-Earthquakes', usgsEarthquakes),
     runSource('EPA', epa),
     runSource('Patents', patents),
     runSource('Bluesky', bluesky),

@@ -526,12 +526,16 @@ crucix/
 | **UN Comtrade** | Strategic commodity trade flows between major powers    | None     |
 
 
-### Tier 3: Weather, Environment, Tech, Social, SIGINT (7)
+### Tier 3: Weather, Environment, Tech, Social, SIGINT (11)
 
 
 | Source            | What It Tracks                                                                   | Auth  |
 | ----------------- | -------------------------------------------------------------------------------- | ----- |
-| **NOAA/NWS**      | Active US weather alerts                                                         | None  |
+| **NOAA/NWS**      | Active US severe weather alerts (map dots + intel)                               | None  |
+| **NHC**           | Active hurricane positions, official track/cone, ATCF model tracks               | None  |
+| **NOAA/SPC**      | Preliminary tornado reports (48h, region-filtered)                               | None  |
+| **OpenWeather**   | Severe warnings for configured US states (optional key)                          | API key |
+| **USGS**          | Earthquakes M4.5+ (hot-pink map layer)                                           | None  |
 | **EPA RadNet**    | US government radiation monitoring                                               | None  |
 | **USPTO Patents** | Patent filings in 7 strategic tech areas                                         | None  |
 | **Bluesky**       | Social sentiment on geopolitical/market topics                                   | None  |
