@@ -215,7 +215,7 @@ Same Telegram setup on any always-on host:
 3. `docker compose exec crucix npm run test:telegram`
 4. Stop any other Crucix instance using the same chat ID.
 
-See [DEPLOY_LINODE.md](DEPLOY_LINODE.md) for VPS hardening and SSH tunnel dashboard access. On a home NUC, open `http://<nuc-lan-ip>:3117` from your LAN instead.
+See [DEPLOY_LINODE.md](DEPLOY_LINODE.md) for VPS hardening and SSH tunnel dashboard access. For private access from you or trusted friends (no port-forwarding), see [DEPLOY_TAILSCALE.md](DEPLOY_TAILSCALE.md). On a home NUC, open `http://<nuc-lan-ip>:3117` from your LAN instead.
 
 **Verify from the NUC:**
 
@@ -504,6 +504,7 @@ That's the semantic-dedup window expiring after 4 hours. If you want longer, cha
 | Doc | Purpose |
 | --- | ------- |
 | [DEPLOY_LINODE.md](DEPLOY_LINODE.md) | VPS deploy, SSH tunnel, `.env` via `scp` |
+| [DEPLOY_TAILSCALE.md](DEPLOY_TAILSCALE.md) | Private dashboard via Tailscale + MagicDNS |
 | [CUSTOM_SOURCES.md](CUSTOM_SOURCES.md) | Custom OSINT feeds (ticker / Intel panel — not yet wired to Telegram delta) |
 | [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md) | Sync fork with upstream after doc/code updates |
 | [README.md](README.md) | Project overview and env var tables |

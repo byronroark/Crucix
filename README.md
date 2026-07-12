@@ -163,6 +163,8 @@ docker compose up -d --build
 
 Open the dashboard from another device on your network: `http://<nuc-lan-ip>:3117` (e.g. `http://192.168.1.50:3117`).
 
+For **remote access** (you or a trusted friend, no port-forwarding): **[DEPLOY_TAILSCALE.md](DEPLOY_TAILSCALE.md)** — install Tailscale on the NUC, open `http://crucix:3117` over your tailnet.
+
 If the container cannot write to `runs/` (permission errors on Linux), set your host user/group in `.env`:
 
 ```env
@@ -195,7 +197,7 @@ Access the dashboard securely via SSH tunnel from your laptop:
 ssh -L 3117:localhost:3117 user@<server-ip>
 ```
 
-Then open `http://localhost:3117`. Do not expose port 3117 to the public internet without adding authentication.
+Then open `http://localhost:3117`. For **you + trusted friends** without a tunnel, use **[DEPLOY_TAILSCALE.md](DEPLOY_TAILSCALE.md)** (free Tailscale Personal plan, up to 6 users). Do not expose port 3117 to the public internet without authentication.
 
 ### Updating a running deployment
 

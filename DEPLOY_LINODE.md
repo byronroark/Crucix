@@ -8,7 +8,7 @@ Run Crucix 24/7 on a small Linode VPS so Telegram alerts, sweeps, and the daily 
 
 - **Plan:** Linode Nanode 1GB (~$5/mo), Ubuntu 24.04 LTS, region near you (e.g. Newark for US East).
 - **Deploy:** `git clone` your fork → copy `.env` → `docker compose up -d --build`.
-- **Dashboard:** use an SSH tunnel (`ssh -L 3117:localhost:3117`) — do not expose port 3117 to the public internet without auth.
+- **Dashboard:** use an SSH tunnel (`ssh -L 3117:localhost:3117`) — or **[Tailscale](DEPLOY_TAILSCALE.md)** for you + trusted friends without exposing port 3117.
 - **Updates:** `git fetch upstream && git merge upstream/master && docker compose up -d --build` (see [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md)).
 - **Alerts:** already documented in [TELEGRAM_ALERTS.md](TELEGRAM_ALERTS.md); test with `docker compose exec crucix npm run test:telegram`.
 
@@ -210,7 +210,13 @@ Send `/status` to your bot from your phone — it should reply with uptime and s
 
 ## Step 5 — Use the dashboard from your laptop
 
-The dashboard has **no built-in login**. The safe default is an SSH tunnel.
+The dashboard has **no built-in login**. Pick one:
+
+### Option A — Tailscale (recommended for you + friends)
+
+See **[DEPLOY_TAILSCALE.md](DEPLOY_TAILSCALE.md)** — install Tailscale on this VPS, enable MagicDNS, block public 3117, open `http://crucix:3117` from any tailnet device. No SSH tunnel window to keep open.
+
+### Option B — SSH tunnel (solo use)
 
 On **Windows PowerShell** (leave this window open while browsing):
 
