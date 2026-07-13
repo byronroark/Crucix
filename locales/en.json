@@ -250,7 +250,8 @@
     "constellations": "CONSTELLATIONS",
     "launches": "launches",
     "sourceOffline": "SOURCE OFFLINE THIS SWEEP",
-    "staleConstellations": "* constellation counts cached (CelesTrak rate limit)"
+    "staleConstellations": "* constellation counts cached (CelesTrak rate limit)",
+    "staleSnapshot": "CACHED SPACE DATA — CelesTrak unreachable this sweep"
   },
   "europe": {
     "noAlerts": "NO ACTIVE ALERTS",

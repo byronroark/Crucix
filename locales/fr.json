@@ -250,7 +250,8 @@
     "constellations": "CONSTELLATIONS",
     "launches": "lancements",
     "sourceOffline": "SOURCE HORS LIGNE CE BALAYAGE",
-    "staleConstellations": "* effectifs de constellation en cache (limite CelesTrak)"
+    "staleConstellations": "* effectifs de constellation en cache (limite CelesTrak)",
+    "staleSnapshot": "DONNÉES SPATIALES EN CACHE — CelesTrak injoignable"
   },
   "europe": {
     "noAlerts": "PAS D'ALERTES ACTIVES",

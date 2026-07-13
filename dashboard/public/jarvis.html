@@ -1165,7 +1165,8 @@ function renderLeftRail(){
     </div>
     <div class="g-panel">
       <div class="sec-head"><h3>${t('panels.spaceWatch','Space Watch')}</h3><span class="badge">${t('badges.orbital','CELESTRAK')}</span></div>
-      ${D.space?.sourceOk === false ? `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid rgba(255,152,0,0.35);background:rgba(255,152,0,0.06);font-family:var(--mono);font-size:9px;color:#ffab40;line-height:1.5">${t('space.sourceOffline','SOURCE OFFLINE THIS SWEEP')}${D.space.error ? `<br>${cleanText(String(D.space.error).substring(0,120))}` : ''}</div>` : ''}
+      ${D.space?.sourceOk === false && !D.space?.staleSnapshot ? `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid rgba(255,152,0,0.35);background:rgba(255,152,0,0.06);font-family:var(--mono);font-size:9px;color:#ffab40;line-height:1.5">${t('space.sourceOffline','SOURCE OFFLINE THIS SWEEP')}${D.space.error ? `<br>${cleanText(String(D.space.error).substring(0,120))}` : ''}</div>` : ''}
+      ${D.space?.staleSnapshot ? `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid rgba(68,204,255,0.25);background:rgba(68,204,255,0.05);font-family:var(--mono);font-size:9px;color:var(--accent2);line-height:1.5">${t('space.staleSnapshot','CACHED SPACE DATA — CelesTrak unreachable this sweep')}</div>` : ''}
       ${D.space ? `
         <div class="econ-row"><span class="elabel">New Objects (30d)</span><span class="eval" style="color:var(--accent2)">${D.space.totalNewObjects||0}</span></div>
         <div class="econ-row"><span class="elabel">Military Sats</span><span class="eval">${D.space.militarySats||0}</span></div>

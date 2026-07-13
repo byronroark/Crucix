@@ -10,7 +10,9 @@ import { safeFetch } from '../utils/fetch.mjs';
 const CELESTRAK_BASE = 'https://celestrak.org';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CACHE_PATH = join(ROOT, 'runs', 'config', 'space-cache.json');
+const SNAPSHOT_PATH = join(ROOT, 'runs', 'config', 'space-snapshot.json');
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // CelesTrak rate-limits mega-constellations
+const SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 
 const SAT_CATEGORIES = {
   stations: '/NORAD/elements/gp.php?GROUP=stations&FORMAT=json',
@@ -42,10 +44,39 @@ function saveConstellationCache(patch) {
   } catch { /* non-fatal */ }
 }
 
+function loadSpaceSnapshot() {
+  try {
+    const raw = readFileSync(SNAPSHOT_PATH, 'utf8');
+    const snap = JSON.parse(raw);
+    if (!snap?.savedAt || !snap.payload) return null;
+    const age = Date.now() - new Date(snap.savedAt).getTime();
+    if (age > SNAPSHOT_TTL_MS) return null;
+    return snap.payload;
+  } catch {
+    return null;
+  }
+}
+
+function saveSpaceSnapshot(payload) {
+  try {
+    const dir = dirname(SNAPSHOT_PATH);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(SNAPSHOT_PATH, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      payload,
+    }, null, 2));
+  } catch { /* non-fatal */ }
+}
+
 async function getTLEs(category) {
   const path = SAT_CATEGORIES[category];
   if (!path) return { error: 'Invalid category' };
-  return safeFetch(`${CELESTRAK_BASE}${path}`, { timeout: 20000 });
+  const isLarge = category === 'starlink' || category === 'oneweb';
+  return safeFetch(`${CELESTRAK_BASE}${path}`, {
+    timeout: isLarge ? 45000 : 20000,
+    retries: 1,
+    maxBuffer: isLarge ? 96 * 1024 * 1024 : 8 * 1024 * 1024,
+  });
 }
 
 async function getRecentLaunches() {
@@ -206,6 +237,21 @@ export async function briefing() {
 
     const hasCoreData = !launches.error || !stations.error;
     if (!hasCoreData) {
+      const stale = loadSpaceSnapshot();
+      if (stale) {
+        return {
+          ...stale,
+          timestamp: new Date().toISOString(),
+          status: 'stale',
+          staleSnapshot: true,
+          error: launches.error || stations.error || 'CelesTrak unreachable',
+          warnings: [
+            'Serving cached space snapshot from last successful sweep',
+            launches.error,
+            stations.error,
+          ].filter(Boolean).slice(0, 3),
+        };
+      }
       return {
         source: 'Space/CelesTrak',
         timestamp: new Date().toISOString(),
@@ -224,7 +270,7 @@ export async function briefing() {
     const data = { launches, stations, military, constellations };
     const signals = generateSignals(data);
 
-    return {
+    const result = {
       source: 'Space/CelesTrak',
       timestamp: new Date().toISOString(),
       status: partialErrors.length ? 'partial' : 'active',
@@ -243,6 +289,8 @@ export async function briefing() {
       signals,
       warnings: partialErrors.length ? partialErrors.slice(0, 3) : undefined,
     };
+    saveSpaceSnapshot(result);
+    return result;
   } catch (e) {
     return {
       source: 'Space/CelesTrak',

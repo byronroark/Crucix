@@ -633,11 +633,12 @@ export async function synthesize(data) {
     })),
     launchByCountry: spaceData.launchByCountry || {},
     signals: spaceData.signals || [],
-    sourceOk: !spaceSourceFailed && spaceData.status !== 'error',
+    sourceOk: !spaceSourceFailed && !['error'].includes(spaceData.status),
     status: spaceData.status || (spaceSourceFailed ? 'error' : 'active'),
     error: spaceSourceFailed ? (spaceFetchError || 'Space source did not return this sweep') : (spaceData.error || null),
     warnings: spaceData.warnings || [],
     staleConstellations: Boolean(spaceData.constellations?.stale),
+    staleSnapshot: Boolean(spaceData.staleSnapshot),
   };
 
   // ACLED conflict events
