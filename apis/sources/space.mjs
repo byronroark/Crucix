@@ -11,8 +11,12 @@ const CELESTRAK_BASE = 'https://celestrak.org';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CACHE_PATH = join(ROOT, 'runs', 'config', 'space-cache.json');
 const SNAPSHOT_PATH = join(ROOT, 'runs', 'config', 'space-snapshot.json');
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // CelesTrak rate-limits mega-constellations
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
+const CONSTELLATION_BUDGET_MS = 18_000;
+// Starlink GP JSON is ~10k+ objects; avoid blocking sweeps on a full download.
+const STARLINK_FETCH_TIMEOUT_MS = 12_000;
+const STARLINK_FALLBACK_COUNT = 10_700;
 
 const SAT_CATEGORIES = {
   stations: '/NORAD/elements/gp.php?GROUP=stations&FORMAT=json',
@@ -21,6 +25,12 @@ const SAT_CATEGORIES = {
   starlink: '/NORAD/elements/gp.php?GROUP=starlink&FORMAT=json',
   oneweb: '/NORAD/elements/gp.php?GROUP=oneweb&FORMAT=json',
 };
+
+function logProgress(msg) {
+  if (process.argv[1]?.endsWith('space.mjs')) {
+    console.error(`[space] ${msg}`);
+  }
+}
 
 function loadConstellationCache() {
   try {
@@ -68,14 +78,23 @@ function saveSpaceSnapshot(payload) {
   } catch { /* non-fatal */ }
 }
 
-async function getTLEs(category) {
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms);
+    }),
+  ]);
+}
+
+async function getTLEs(category, opts = {}) {
   const path = SAT_CATEGORIES[category];
   if (!path) return { error: 'Invalid category' };
-  const isLarge = category === 'starlink' || category === 'oneweb';
+  const isStarlink = category === 'starlink';
   return safeFetch(`${CELESTRAK_BASE}${path}`, {
-    timeout: isLarge ? 45000 : 20000,
-    retries: 1,
-    maxBuffer: isLarge ? 96 * 1024 * 1024 : 8 * 1024 * 1024,
+    timeout: opts.timeout ?? (isStarlink ? STARLINK_FETCH_TIMEOUT_MS : 20_000),
+    retries: opts.retries ?? 0,
+    maxBuffer: isStarlink ? 96 * 1024 * 1024 : 8 * 1024 * 1024,
   });
 }
 
@@ -158,36 +177,69 @@ async function getConstellationStats() {
   const cacheAge = cache.updatedAt ? Date.now() - new Date(cache.updatedAt).getTime() : Infinity;
   const cacheFresh = cacheAge < CACHE_TTL_MS;
 
-  // Fetch sequentially — parallel mega-constellation pulls trigger CelesTrak 403 cooldowns.
-  const starlinkRes = await countConstellation('starlink');
-  const onewebRes = await countConstellation('oneweb');
-
-  let starlink = starlinkRes.count;
-  let oneweb = onewebRes.count;
+  let starlink = cache.starlink || 0;
+  let oneweb = cache.oneweb || 0;
   let stale = false;
+  const errors = [];
 
-  if (starlink <= 0 && cache.starlink > 0 && (cacheFresh || starlinkRes.error)) {
-    starlink = cache.starlink;
-    stale = true;
-  }
-  if (oneweb <= 0 && cache.oneweb > 0 && (cacheFresh || onewebRes.error)) {
-    oneweb = cache.oneweb;
-    stale = true;
+  if (cacheFresh && starlink > 0) {
+    logProgress(`starlink count from cache (${starlink})`);
+  } else {
+    logProgress('refreshing starlink count (short timeout)...');
+    try {
+      const starlinkRes = await withTimeout(
+        countConstellation('starlink'),
+        STARLINK_FETCH_TIMEOUT_MS,
+        'starlink',
+      );
+      if (starlinkRes.count > 0) {
+        starlink = starlinkRes.count;
+        saveConstellationCache({ starlink });
+      } else if (starlinkRes.error) {
+        errors.push(starlinkRes.error);
+        if (cache.starlink > 0) {
+          starlink = cache.starlink;
+          stale = true;
+        } else {
+          starlink = STARLINK_FALLBACK_COUNT;
+          stale = true;
+          errors.push('Using estimated Starlink count (catalog too large to fetch quickly)');
+        }
+      }
+    } catch (e) {
+      errors.push(e.message);
+      if (cache.starlink > 0) {
+        starlink = cache.starlink;
+      } else {
+        starlink = STARLINK_FALLBACK_COUNT;
+        errors.push('Using estimated Starlink count (fetch timed out)');
+      }
+      stale = true;
+    }
   }
 
-  if (starlinkRes.count > 0 || onewebRes.count > 0) {
-    saveConstellationCache({
-      starlink: starlinkRes.count > 0 ? starlinkRes.count : cache.starlink,
-      oneweb: onewebRes.count > 0 ? onewebRes.count : cache.oneweb,
-    });
+  logProgress('refreshing oneweb count...');
+  try {
+    const onewebRes = await withTimeout(countConstellation('oneweb'), 15_000, 'oneweb');
+    if (onewebRes.count > 0) {
+      oneweb = onewebRes.count;
+      saveConstellationCache({ oneweb });
+    } else if (onewebRes.error) {
+      errors.push(onewebRes.error);
+      if (cache.oneweb > 0) {
+        oneweb = cache.oneweb;
+        stale = true;
+      }
+    }
+  } catch (e) {
+    errors.push(e.message);
+    if (cache.oneweb > 0) {
+      oneweb = cache.oneweb;
+      stale = true;
+    }
   }
 
-  return {
-    starlink,
-    oneweb,
-    stale,
-    errors: [starlinkRes.error, onewebRes.error].filter(Boolean),
-  };
+  return { starlink, oneweb, stale, errors };
 }
 
 function generateSignals(data) {
@@ -223,17 +275,16 @@ function settleResult(result, fallback = {}) {
 
 export async function briefing() {
   try {
-    const [launchesR, stationsR, militaryR, constellationsR] = await Promise.allSettled([
+    logProgress('fetching core groups (stations, launches, military)...');
+    const [launchesR, stationsR, militaryR] = await Promise.allSettled([
       getRecentLaunches(),
       getStationData(),
       getMilitaryCount(),
-      getConstellationStats(),
     ]);
 
     const launches = settleResult(launchesR);
     const stations = settleResult(stationsR);
     const military = settleResult(militaryR, { count: 0, byCountry: {} });
-    const constellations = settleResult(constellationsR, { starlink: 0, oneweb: 0, stale: false, errors: [] });
 
     const hasCoreData = !launches.error || !stations.error;
     if (!hasCoreData) {
@@ -257,6 +308,24 @@ export async function briefing() {
         timestamp: new Date().toISOString(),
         status: 'error',
         error: launches.error || stations.error || 'Failed to fetch space data',
+      };
+    }
+
+    let constellations = { starlink: 0, oneweb: 0, stale: false, errors: [] };
+    try {
+      logProgress('fetching constellation counts...');
+      constellations = await withTimeout(
+        getConstellationStats(),
+        CONSTELLATION_BUDGET_MS,
+        'constellation stats',
+      );
+    } catch (e) {
+      const cache = loadConstellationCache();
+      constellations = {
+        starlink: cache.starlink || STARLINK_FALLBACK_COUNT,
+        oneweb: cache.oneweb || 0,
+        stale: true,
+        errors: [e.message],
       };
     }
 
@@ -290,6 +359,7 @@ export async function briefing() {
       warnings: partialErrors.length ? partialErrors.slice(0, 3) : undefined,
     };
     saveSpaceSnapshot(result);
+    logProgress(`done — new=${result.totalNewObjects} mil=${result.militarySatellites} sl=${result.constellations.starlink}`);
     return result;
   } catch (e) {
     return {
