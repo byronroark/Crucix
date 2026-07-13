@@ -12,6 +12,7 @@ import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs'
 import { fullBriefing } from './apis/briefing.mjs';
 import { synthesize, generateIdeas, buildWatchlistMarketPatch, buildTrackedTiles } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
+import { buildSignalCore } from './lib/signal-core.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
 import { generateIntelAnalysis, hasIntelInput, harvestIntelItems } from './lib/llm/intel-analysis.mjs';
@@ -686,8 +687,10 @@ async function runSweepCycle() {
     const synthesized = await synthesize(rawData);
 
     // 4. Delta computation + memory
+    const priorRuns = memory.getRunHistory().map(r => r.data);
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;
+    synthesized.signalCore = buildSignalCore(synthesized, priorRuns, delta);
 
     // 5. LLM-powered trade ideas (LLM-only feature) — isolated so failures don't kill sweep
     if (llmProvider?.isConfigured) {

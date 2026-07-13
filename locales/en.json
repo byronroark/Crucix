@@ -213,10 +213,10 @@
   },
   "signalMetrics": {
     "incidentTempo": "Incident Tempo",
-    "airTheaters": "Air Theaters",
+    "airActivity": "Air Activity",
     "thermalSpikes": "Thermal Spikes",
     "sdrNodes": "SDR Nodes",
-    "chokepoints": "Chokepoints",
+    "earthquakes": "Earthquakes",
     "whoAlerts": "WHO Alerts"
   },
   "nuclear": {

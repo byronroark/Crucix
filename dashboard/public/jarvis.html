@@ -269,6 +269,8 @@ body.low-perf .weather-radar-controls{display:none}
 .sm .sml{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.05em}
 .sm .smb{flex:1;height:4px;margin:0 10px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden}
 .sm .smb span{display:block;height:100%;border-radius:2px;background:linear-gradient(90deg,rgba(68,204,255,0.3),var(--accent))}
+.sm .smb.up span{background:linear-gradient(90deg,rgba(129,199,132,0.3),#81c784)}
+.sm .smb.down span{background:linear-gradient(90deg,rgba(239,83,80,0.3),#ef5350)}
 .sm .smv{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--accent);min-width:32px;text-align:center;padding:3px 6px;border:1px solid var(--border-bright);background:rgba(100,240,200,0.06)}
 
 /* LEVERAGEABLE IDEAS */
@@ -2650,15 +2652,22 @@ function renderRight(){
   // CROSS-SOURCE SIGNALS — moved from lower grid to right rail
   const signals=D.tSignals.slice(0,6).map((s,i)=>`<div class="signal-row"><strong>Signal ${i+1}</strong><p>${s}</p></div>`).join('');
 
-  // OSINT TICKER — Telegram + WHO as flowing cards
-  const signalMetrics=[
-    {l:'Incident Tempo',v:D.tg.urgent.length,p:70},
-    {l:'Air Theaters',v:D.air.length,p:60},
-    {l:'Thermal Spikes',v:D.thermal.reduce((s,t)=>s+t.hc,0),p:80},
-    {l:'SDR Nodes',v:D.sdr.total,p:92},
-    {l:'Chokepoints',v:D.chokepoints.length,p:50},
-    {l:'WHO Alerts',v:D.who.length,p:40}
-  ];
+  // Signal Core — baseline-relative activity bars (server-computed in signalCore)
+  const signalMetrics = (D.signalCore?.metrics || []).length
+    ? D.signalCore.metrics.map(m => ({
+        l: t(m.labelKey, m.key),
+        v: m.value,
+        p: m.barPct ?? 0,
+        trend: m.trend || 'flat',
+      }))
+    : [
+        { l: t('signalMetrics.incidentTempo', 'Incident Tempo'), v: D.tg?.urgent?.length || 0, p: 0, trend: 'flat' },
+        { l: t('signalMetrics.airActivity', 'Air Activity'), v: (D.air || []).reduce((s, a) => s + (a.total || 0), 0), p: 0, trend: 'flat' },
+        { l: t('signalMetrics.thermalSpikes', 'Thermal Spikes'), v: (D.thermal || []).reduce((s, t) => s + (t.hc || 0), 0), p: 0, trend: 'flat' },
+        { l: t('signalMetrics.sdrNodes', 'SDR Nodes'), v: D.sdr?.total || 0, p: 0, trend: 'flat' },
+        { l: t('signalMetrics.earthquakes', 'Earthquakes'), v: D.earthquakes?.total || 0, p: 0, trend: 'flat' },
+        { l: t('signalMetrics.whoAlerts', 'WHO Alerts'), v: D.who?.length || 0, p: 0, trend: 'flat' },
+      ];
 
   // DELTA PANEL — what changed since last sweep
   const delta = D.delta || {};
@@ -2692,7 +2701,7 @@ function renderRight(){
     ${mobile ? '' : buildOsintPanel('right-osint', 260)}
     <div class="g-panel right-core">
       <div class="sec-head"><h3>${t('panels.signalCore','Signal Core')}</h3><span class="badge">${t('badges.hotMetrics','HOT METRICS')}</span></div>
-      ${signalMetrics.map(s=>`<div class="sm"><span class="sml">${s.l}</span><div class="smb"><span style="width:${s.p}%"></span></div><span class="smv">${s.v}</span></div>`).join('')}
+      ${signalMetrics.map(s=>`<div class="sm"><span class="sml">${s.l}</span><div class="smb${s.trend==='up'?' up':s.trend==='down'?' down':''}"><span style="width:${s.p}%"></span></div><span class="smv">${s.v}</span></div>`).join('')}
     </div>
     <div class="g-panel right-delta">
       <div class="sec-head"><h3>${t('panels.sweepDelta','Sweep Delta')}</h3><span class="badge ${dirClass}">${dirEmoji} ${ds.direction?t('delta.'+ds.direction,ds.direction.toUpperCase()):t('delta.baseline','BASELINE')}</span></div>

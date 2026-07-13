@@ -259,4 +259,12 @@ export default {
       },
     },
   },
+
+  // Signal Core bar floors — minimum denominators for relative-activity scoring
+  signalCore: {
+    floors: {
+      // urgent_posts: 2,
+      // thermal_hc: 20,
+    },
+  },
 };
