@@ -597,7 +597,30 @@ export async function synthesize(data) {
   const epa = { totalReadings: epaData.totalReadings || 0, stations: epaStations.slice(0, 10) };
 
   // Space/CelesTrak satellite data
-  const spaceData = data.sources.Space || {};
+  function loadSpaceSnapshotFallback() {
+    try {
+      const snap = JSON.parse(readFileSync(join(ROOT, 'runs', 'config', 'space-snapshot.json'), 'utf8'));
+      if (!snap?.payload) return null;
+      return {
+        ...snap.payload,
+        status: 'stale',
+        staleSnapshot: true,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const rawSpace = data.sources.Space;
+  let spaceFromSnapshot = false;
+  let spaceData = rawSpace || {};
+  if (!rawSpace || spaceData.status === 'error') {
+    const snap = loadSpaceSnapshotFallback();
+    if (snap) {
+      spaceData = snap;
+      spaceFromSnapshot = true;
+    }
+  }
   // Approximate subsatellite position from TLE orbital elements
   function estimateSatPosition(sat) {
     if (sat?.latitude != null && sat?.longitude != null) {
@@ -621,10 +644,12 @@ export async function synthesize(data) {
   const stationPositions = (spaceData.stationPositions?.length
     ? spaceData.stationPositions
     : mappedStations).slice(0, 5);
-  const spaceSourceFailed = !(data.sources.Space);
-  const spaceFetchError = (data.errors || []).find(e => e.name === 'Space')?.error
-    || spaceData.error
-    || null;
+  const spaceSourceFailed = !rawSpace && !spaceFromSnapshot;
+  const spaceFetchError = spaceFromSnapshot
+    ? null
+    : ((data.errors || []).find(e => e.name === 'Space')?.error
+      || spaceData.error
+      || null);
   const space = {
     totalNewObjects: spaceData.totalNewObjects || 0,
     militarySats: spaceData.militarySatellites || 0,
@@ -639,9 +664,9 @@ export async function synthesize(data) {
     })),
     launchByCountry: spaceData.launchByCountry || {},
     signals: spaceData.signals || [],
-    sourceOk: !spaceSourceFailed && !['error'].includes(spaceData.status),
+    sourceOk: spaceFromSnapshot || (!spaceSourceFailed && !['error'].includes(spaceData.status)),
     status: spaceData.status || (spaceSourceFailed ? 'error' : 'active'),
-    error: spaceSourceFailed ? (spaceFetchError || 'Space source did not return this sweep') : (spaceData.error || null),
+    error: spaceFromSnapshot ? null : (spaceSourceFailed ? (spaceFetchError || 'Space source did not return this sweep') : (spaceData.error || null)),
     warnings: spaceData.warnings || [],
     staleConstellations: Boolean(spaceData.constellations?.stale),
     staleSnapshot: Boolean(spaceData.staleSnapshot),
