@@ -20,8 +20,10 @@ function curlAvailable() {
 
 async function fetchViaCurl(url, timeoutMs, maxBuffer) {
   const sec = Math.max(5, Math.ceil(timeoutMs / 1000));
+  const connectSec = Math.min(8, sec);
   const { stdout } = await execFileAsync('curl', [
     '-fsSL',
+    '--connect-timeout', String(connectSec),
     '--max-time', String(sec),
     '-A', 'Crucix/1.0',
     url,

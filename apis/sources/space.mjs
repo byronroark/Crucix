@@ -1,6 +1,5 @@
 // Space/CelesTrak — Satellite Activity Monitoring
-// No API key required. Uses CelesTrak for public TLE data and launch info.
-// Tracks: Recent launches, ISS position, satellite decay alerts, space debris.
+// CelesTrak GP data updates ~every 2h; respect rate limits or the IP gets TCP-firewalled.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
@@ -8,21 +7,22 @@ import { fileURLToPath } from 'url';
 import { safeFetch } from '../utils/fetch.mjs';
 
 const CELESTRAK_BASE = 'https://celestrak.org';
+const ISS_FALLBACK_URL = 'https://api.wheretheiss.at/v1/satellites/25544';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CACHE_PATH = join(ROOT, 'runs', 'config', 'space-cache.json');
 const SNAPSHOT_PATH = join(ROOT, 'runs', 'config', 'space-snapshot.json');
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
-const CONSTELLATION_BUDGET_MS = 18_000;
-// Starlink GP JSON is ~10k+ objects; avoid blocking sweeps on a full download.
-const STARLINK_FETCH_TIMEOUT_MS = 12_000;
+const FETCH_META_PATH = join(ROOT, 'runs', 'config', 'space-fetch-meta.json');
+
+// CelesTrak usage policy: GP groups update every ~2 hours.
+const CELESTRAK_MIN_INTERVAL_MS = 2 * 60 * 60 * 1000 - 5 * 60 * 1000;
+const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const STARLINK_FALLBACK_COUNT = 10_700;
+const SMALL_FETCH_TIMEOUT_MS = 12_000;
 
 const SAT_CATEGORIES = {
   stations: '/NORAD/elements/gp.php?GROUP=stations&FORMAT=json',
   lastDay: '/NORAD/elements/gp.php?GROUP=last-30-days&FORMAT=json',
   military: '/NORAD/elements/gp.php?GROUP=military&FORMAT=json',
-  starlink: '/NORAD/elements/gp.php?GROUP=starlink&FORMAT=json',
   oneweb: '/NORAD/elements/gp.php?GROUP=oneweb&FORMAT=json',
 };
 
@@ -32,19 +32,37 @@ function logProgress(msg) {
   }
 }
 
+function ensureConfigDir() {
+  const dir = dirname(SNAPSHOT_PATH);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
+function loadFetchMeta() {
+  try {
+    return JSON.parse(readFileSync(FETCH_META_PATH, 'utf8'));
+  } catch {
+    return { lastOkAt: null };
+  }
+}
+
+function saveFetchMeta(patch) {
+  try {
+    ensureConfigDir();
+    writeFileSync(FETCH_META_PATH, JSON.stringify({ ...loadFetchMeta(), ...patch }, null, 2));
+  } catch { /* non-fatal */ }
+}
+
 function loadConstellationCache() {
   try {
-    const raw = readFileSync(CACHE_PATH, 'utf8');
-    return JSON.parse(raw);
+    return JSON.parse(readFileSync(CACHE_PATH, 'utf8'));
   } catch {
-    return { starlink: 0, oneweb: 0, updatedAt: null };
+    return { starlink: STARLINK_FALLBACK_COUNT, oneweb: 0, updatedAt: null };
   }
 }
 
 function saveConstellationCache(patch) {
   try {
-    const dir = dirname(CACHE_PATH);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    ensureConfigDir();
     const prev = loadConstellationCache();
     writeFileSync(CACHE_PATH, JSON.stringify({
       ...prev,
@@ -54,13 +72,15 @@ function saveConstellationCache(patch) {
   } catch { /* non-fatal */ }
 }
 
-function loadSpaceSnapshot() {
+function loadSpaceSnapshot(ignoreMaxAge = false) {
   try {
     const raw = readFileSync(SNAPSHOT_PATH, 'utf8');
     const snap = JSON.parse(raw);
     if (!snap?.savedAt || !snap.payload) return null;
-    const age = Date.now() - new Date(snap.savedAt).getTime();
-    if (age > SNAPSHOT_TTL_MS) return null;
+    if (!ignoreMaxAge) {
+      const age = Date.now() - new Date(snap.savedAt).getTime();
+      if (age > SNAPSHOT_MAX_AGE_MS) return null;
+    }
     return snap.payload;
   } catch {
     return null;
@@ -69,33 +89,67 @@ function loadSpaceSnapshot() {
 
 function saveSpaceSnapshot(payload) {
   try {
-    const dir = dirname(SNAPSHOT_PATH);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    ensureConfigDir();
     writeFileSync(SNAPSHOT_PATH, JSON.stringify({
       savedAt: new Date().toISOString(),
       payload,
     }, null, 2));
+    saveFetchMeta({ lastOkAt: new Date().toISOString() });
   } catch { /* non-fatal */ }
 }
 
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms);
-    }),
-  ]);
+function shouldSkipCelestrakNetwork() {
+  if (process.env.SPACE_FORCE_REFRESH === '1') return false;
+  const meta = loadFetchMeta();
+  if (!meta.lastOkAt) return false;
+  const age = Date.now() - new Date(meta.lastOkAt).getTime();
+  return age < CELESTRAK_MIN_INTERVAL_MS && Boolean(loadSpaceSnapshot(true));
 }
 
-async function getTLEs(category, opts = {}) {
+function stalePayload(reason, extra = {}) {
+  const snap = loadSpaceSnapshot(true);
+  if (!snap) return null;
+  return {
+    ...snap,
+    timestamp: new Date().toISOString(),
+    status: 'stale',
+    staleSnapshot: true,
+    error: reason,
+    warnings: [reason, ...(snap.warnings || [])].filter(Boolean).slice(0, 3),
+    ...extra,
+  };
+}
+
+async function getTLEs(category) {
   const path = SAT_CATEGORIES[category];
   if (!path) return { error: 'Invalid category' };
-  const isStarlink = category === 'starlink';
   return safeFetch(`${CELESTRAK_BASE}${path}`, {
-    timeout: opts.timeout ?? (isStarlink ? STARLINK_FETCH_TIMEOUT_MS : 20_000),
-    retries: opts.retries ?? 0,
-    maxBuffer: isStarlink ? 96 * 1024 * 1024 : 8 * 1024 * 1024,
+    timeout: SMALL_FETCH_TIMEOUT_MS,
+    retries: 0,
+    maxBuffer: 8 * 1024 * 1024,
   });
+}
+
+async function fetchIssFallback() {
+  const data = await safeFetch(ISS_FALLBACK_URL, { timeout: 10_000, retries: 0 });
+  if (data?.error || data.latitude == null || data.longitude == null) {
+    return { error: data?.error || 'ISS fallback unavailable' };
+  }
+  const epoch = data.timestamp ? new Date(data.timestamp * 1000).toISOString() : new Date().toISOString();
+  const iss = {
+    name: 'ISS',
+    noradId: 25544,
+    inclination: 51.6,
+    period: 92.7,
+    epoch,
+    latitude: data.latitude,
+    longitude: data.longitude,
+  };
+  return {
+    iss,
+    stations: [iss],
+    stationPositions: [{ lat: data.latitude, lon: data.longitude, name: 'ISS (live)' }],
+  };
 }
 
 async function getRecentLaunches() {
@@ -108,8 +162,6 @@ async function getRecentLaunches() {
     name: sat.OBJECT_NAME,
     noradId: sat.NORAD_CAT_ID,
     classification: sat.CLASSIFICATION_TYPE,
-    launchDate: sat.LAUNCH_DATE,
-    decayDate: sat.DECAY_DATE,
     period: sat.PERIOD,
     inclination: sat.INCLINATION,
     apogee: sat.APOAPSIS,
@@ -147,7 +199,6 @@ async function getStationData() {
   })).filter(s => s.name);
 
   const iss = stations.find(s => s.name.includes('ISS') || s.noradId === 25544);
-
   return { totalStations: stations.length, stations: stations.slice(0, 10), iss };
 }
 
@@ -166,63 +217,20 @@ async function getMilitaryCount() {
   return { count: data.length, byCountry };
 }
 
-async function countConstellation(category) {
-  const data = await getTLEs(category);
-  if (Array.isArray(data)) return { count: data.length };
-  return { count: 0, error: data.error || `Failed to fetch ${category}` };
-}
-
 async function getConstellationStats() {
   const cache = loadConstellationCache();
-  const cacheAge = cache.updatedAt ? Date.now() - new Date(cache.updatedAt).getTime() : Infinity;
-  const cacheFresh = cacheAge < CACHE_TTL_MS;
-
-  let starlink = cache.starlink || 0;
   let oneweb = cache.oneweb || 0;
+  let starlink = cache.starlink || STARLINK_FALLBACK_COUNT;
   let stale = false;
   const errors = [];
 
-  if (cacheFresh && starlink > 0) {
-    logProgress(`starlink count from cache (${starlink})`);
-  } else {
-    logProgress('refreshing starlink count (short timeout)...');
-    try {
-      const starlinkRes = await withTimeout(
-        countConstellation('starlink'),
-        STARLINK_FETCH_TIMEOUT_MS,
-        'starlink',
-      );
-      if (starlinkRes.count > 0) {
-        starlink = starlinkRes.count;
-        saveConstellationCache({ starlink });
-      } else if (starlinkRes.error) {
-        errors.push(starlinkRes.error);
-        if (cache.starlink > 0) {
-          starlink = cache.starlink;
-          stale = true;
-        } else {
-          starlink = STARLINK_FALLBACK_COUNT;
-          stale = true;
-          errors.push('Using estimated Starlink count (catalog too large to fetch quickly)');
-        }
-      }
-    } catch (e) {
-      errors.push(e.message);
-      if (cache.starlink > 0) {
-        starlink = cache.starlink;
-      } else {
-        starlink = STARLINK_FALLBACK_COUNT;
-        errors.push('Using estimated Starlink count (fetch timed out)');
-      }
-      stale = true;
-    }
-  }
+  // Never pull the Starlink mega-catalog during sweeps — it triggers CelesTrak IP blocks.
+  logProgress(`starlink count from cache (${starlink})`);
 
-  logProgress('refreshing oneweb count...');
   try {
-    const onewebRes = await withTimeout(countConstellation('oneweb'), 15_000, 'oneweb');
-    if (onewebRes.count > 0) {
-      oneweb = onewebRes.count;
+    const onewebRes = await getTLEs('oneweb');
+    if (Array.isArray(onewebRes)) {
+      oneweb = onewebRes.length;
       saveConstellationCache({ oneweb });
     } else if (onewebRes.error) {
       errors.push(onewebRes.error);
@@ -244,20 +252,8 @@ async function getConstellationStats() {
 
 function generateSignals(data) {
   const signals = [];
-
   if (data.launches?.totalObjects > 50) {
     signals.push(`HIGH LAUNCH TEMPO: ${data.launches.totalObjects} new objects tracked in last 30 days`);
-  }
-
-  const byCountry = data.launches?.byCountry || {};
-  const cnLaunches = byCountry.PRC || byCountry.CN || 0;
-  const ruLaunches = byCountry.CIS || byCountry.RU || 0;
-
-  if (cnLaunches > 10) {
-    signals.push(`CHINA SPACE ACTIVITY: ${cnLaunches} objects launched recently`);
-  }
-  if (ruLaunches > 5) {
-    signals.push(`RUSSIA SPACE ACTIVITY: ${ruLaunches} objects launched recently`);
   }
   if (data.military?.count > 0) {
     signals.push(`MILITARY TRACK: ${data.military.count} objects in CelesTrak military group`);
@@ -265,69 +261,90 @@ function generateSignals(data) {
   if (data.constellations?.starlink > 6000) {
     signals.push(`STARLINK MEGA-CONSTELLATION: ${data.constellations.starlink} active satellites`);
   }
-
   return signals;
 }
 
-function settleResult(result, fallback = {}) {
-  return result.status === 'fulfilled' ? result.value : { ...fallback, error: result.reason?.message || 'fetch failed' };
+function buildResult({ launches, stations, military, constellations, status = 'active', warnings, extra = {} }) {
+  const data = { launches, stations, military, constellations };
+  return {
+    source: 'Space/CelesTrak',
+    timestamp: new Date().toISOString(),
+    status,
+    recentLaunches: launches.recentLaunches || [],
+    totalNewObjects: launches.totalObjects || 0,
+    launchByCountry: launches.byCountry || {},
+    spaceStations: stations.stations || [],
+    iss: stations.iss || null,
+    militarySatellites: military.count || 0,
+    militaryByCountry: military.byCountry || {},
+    constellations: {
+      starlink: constellations.starlink || 0,
+      oneweb: constellations.oneweb || 0,
+      stale: Boolean(constellations.stale),
+    },
+    signals: generateSignals(data),
+    warnings: warnings?.length ? warnings.slice(0, 3) : undefined,
+    ...extra,
+  };
 }
 
 export async function briefing() {
   try {
-    logProgress('fetching core groups (stations, launches, military)...');
-    const [launchesR, stationsR, militaryR] = await Promise.allSettled([
+    if (shouldSkipCelestrakNetwork()) {
+      const cached = stalePayload('Serving cached space data (CelesTrak refresh interval)');
+      if (cached) {
+        logProgress('using cached snapshot (within 2h CelesTrak window)');
+        return cached;
+      }
+    }
+
+    logProgress('fetching CelesTrak core groups...');
+    const [launches, stations, military] = await Promise.all([
       getRecentLaunches(),
       getStationData(),
       getMilitaryCount(),
     ]);
 
-    const launches = settleResult(launchesR);
-    const stations = settleResult(stationsR);
-    const military = settleResult(militaryR, { count: 0, byCountry: {} });
-
     const hasCoreData = !launches.error || !stations.error;
+
     if (!hasCoreData) {
-      const stale = loadSpaceSnapshot();
-      if (stale) {
-        return {
-          ...stale,
-          timestamp: new Date().toISOString(),
-          status: 'stale',
-          staleSnapshot: true,
-          error: launches.error || stations.error || 'CelesTrak unreachable',
-          warnings: [
-            'Serving cached space snapshot from last successful sweep',
-            launches.error,
-            stations.error,
-          ].filter(Boolean).slice(0, 3),
-        };
+      logProgress('CelesTrak unreachable — trying ISS fallback + cache');
+      const issFallback = await fetchIssFallback();
+      const cached = stalePayload(
+        launches.error || stations.error || 'CelesTrak unreachable',
+        issFallback.iss ? {
+          iss: issFallback.iss,
+          spaceStations: issFallback.stations,
+          stationPositions: issFallback.stationPositions,
+        } : {},
+      );
+      if (cached) return cached;
+
+      if (issFallback.iss) {
+        const cache = loadConstellationCache();
+        const partial = buildResult({
+          launches: { totalObjects: 0, recentLaunches: [], byCountry: {} },
+          stations: { stations: issFallback.stations, iss: issFallback.iss },
+          military: { count: 0, byCountry: {} },
+          constellations: { starlink: cache.starlink, oneweb: cache.oneweb, stale: true },
+          status: 'partial',
+          warnings: [launches.error, stations.error, 'ISS position from WhereTheISS fallback'].filter(Boolean),
+          issFallback: true,
+        });
+        partial.stationPositions = issFallback.stationPositions;
+        return partial;
       }
+
       return {
         source: 'Space/CelesTrak',
         timestamp: new Date().toISOString(),
         status: 'error',
-        error: launches.error || stations.error || 'Failed to fetch space data',
+        error: launches.error || stations.error || 'CelesTrak unreachable (IP may be temporarily firewalled)',
       };
     }
 
-    let constellations = { starlink: 0, oneweb: 0, stale: false, errors: [] };
-    try {
-      logProgress('fetching constellation counts...');
-      constellations = await withTimeout(
-        getConstellationStats(),
-        CONSTELLATION_BUDGET_MS,
-        'constellation stats',
-      );
-    } catch (e) {
-      const cache = loadConstellationCache();
-      constellations = {
-        starlink: cache.starlink || STARLINK_FALLBACK_COUNT,
-        oneweb: cache.oneweb || 0,
-        stale: true,
-        errors: [e.message],
-      };
-    }
+    logProgress('fetching oneweb count (starlink from cache only)...');
+    const constellations = await getConstellationStats();
 
     const partialErrors = [
       launches.error,
@@ -336,32 +353,21 @@ export async function briefing() {
       ...(constellations.errors || []),
     ].filter(Boolean);
 
-    const data = { launches, stations, military, constellations };
-    const signals = generateSignals(data);
-
-    const result = {
-      source: 'Space/CelesTrak',
-      timestamp: new Date().toISOString(),
+    const result = buildResult({
+      launches,
+      stations,
+      military,
+      constellations,
       status: partialErrors.length ? 'partial' : 'active',
-      recentLaunches: launches.recentLaunches || [],
-      totalNewObjects: launches.totalObjects || 0,
-      launchByCountry: launches.byCountry || {},
-      spaceStations: stations.stations || [],
-      iss: stations.iss || null,
-      militarySatellites: military.count || 0,
-      militaryByCountry: military.byCountry || {},
-      constellations: {
-        starlink: constellations.starlink || 0,
-        oneweb: constellations.oneweb || 0,
-        stale: Boolean(constellations.stale),
-      },
-      signals,
-      warnings: partialErrors.length ? partialErrors.slice(0, 3) : undefined,
-    };
+      warnings: partialErrors,
+    });
+
     saveSpaceSnapshot(result);
     logProgress(`done — new=${result.totalNewObjects} mil=${result.militarySatellites} sl=${result.constellations.starlink}`);
     return result;
   } catch (e) {
+    const cached = stalePayload(e.message);
+    if (cached) return cached;
     return {
       source: 'Space/CelesTrak',
       timestamp: new Date().toISOString(),

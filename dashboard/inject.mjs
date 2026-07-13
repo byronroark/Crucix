@@ -600,6 +600,9 @@ export async function synthesize(data) {
   const spaceData = data.sources.Space || {};
   // Approximate subsatellite position from TLE orbital elements
   function estimateSatPosition(sat) {
+    if (sat?.latitude != null && sat?.longitude != null) {
+      return { lat: +Number(sat.latitude).toFixed(2), lon: +Number(sat.longitude).toFixed(2), name: sat.name };
+    }
     if (!sat?.inclination || !sat?.epoch) return null;
     const epoch = new Date(sat.epoch);
     const now = new Date();
@@ -614,7 +617,10 @@ export async function synthesize(data) {
     return { lat: +lat.toFixed(2), lon: +lon.toFixed(2), name: sat.name };
   }
   const issPos = estimateSatPosition(spaceData.iss);
-  const spaceStations = (spaceData.spaceStations || []).map(s => estimateSatPosition(s)).filter(Boolean);
+  const mappedStations = (spaceData.spaceStations || []).map(s => estimateSatPosition(s)).filter(Boolean);
+  const stationPositions = (spaceData.stationPositions?.length
+    ? spaceData.stationPositions
+    : mappedStations).slice(0, 5);
   const spaceSourceFailed = !(data.sources.Space);
   const spaceFetchError = (data.errors || []).find(e => e.name === 'Space')?.error
     || spaceData.error
@@ -626,7 +632,7 @@ export async function synthesize(data) {
     constellations: spaceData.constellations || {},
     iss: spaceData.iss || null,
     issPosition: issPos,
-    stationPositions: spaceStations.slice(0, 5),
+    stationPositions,
     recentLaunches: (spaceData.recentLaunches || []).slice(0, 10).map(l => ({
       name: l.name, country: l.country, epoch: l.epoch,
       apogee: l.apogee, perigee: l.perigee, type: l.objectType
