@@ -649,6 +649,33 @@ const PACK_GAP_PX = 1.5;
 const DEFAULT_MARKER_RADIUS_PX = 3;
 const SPREADABLE_TYPES = new Set(['news', 'custom', 'gdelt', 'weather', 'earthquake', 'osint', 'health', 'thermal', 'sdr', 'radiation']);
 
+// Per-type spread tuning when markers overlap at regional zoom.
+const SPREAD_TYPE_TUNING = {
+  custom: {
+    mergePx: 12,
+    gapPx: 2.75,
+    radiusMul: 1.2,
+    seedRadius: 0.75,
+    centroidPull: 0.04,
+    zoomBoostMax: 0.3,
+  },
+};
+
+function spreadTypeTuning(type) {
+  return SPREAD_TYPE_TUNING[type] || {};
+}
+
+function spreadMergePx(type) {
+  return spreadTypeTuning(type).mergePx ?? CLUSTER_MERGE_PX;
+}
+
+function spreadZoomBoost(type, zoomLevel) {
+  const maxBoost = spreadTypeTuning(type).zoomBoostMax;
+  if (!maxBoost || zoomLevel < SPREAD_ZOOM_MIN) return 1;
+  const ramp = Math.min(1, (zoomLevel - SPREAD_ZOOM_MIN) / (SPREAD_ZOOM_MAX - SPREAD_ZOOM_MIN));
+  return 1 + ramp * maxBoost;
+}
+
 function shouldSpreadMarkers(zoomLevel) {
   return zoomLevel >= SPREAD_ZOOM_MIN;
 }
@@ -666,7 +693,7 @@ function spreadSeed(s) {
   return h;
 }
 
-function clusterByScreenProximity(items, mergePx) {
+function clusterByScreenProximity(items) {
   const n = items.length;
   const parent = items.map((_, i) => i);
   const find = (i) => {
@@ -674,10 +701,11 @@ function clusterByScreenProximity(items, mergePx) {
     return i;
   };
   const union = (a, b) => { parent[find(a)] = find(b); };
-  const mergeSq = mergePx * mergePx;
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       if (items[i].type !== items[j].type) continue;
+      const mergePx = spreadMergePx(items[i].type);
+      const mergeSq = mergePx * mergePx;
       const dx = items[i].sx - items[j].sx;
       const dy = items[i].sy - items[j].sy;
       if (dx * dx + dy * dy <= mergeSq) union(i, j);
@@ -692,19 +720,24 @@ function clusterByScreenProximity(items, mergePx) {
   return [...clusters.values()];
 }
 
-function packClusterAroundCentroid(items) {
+function packClusterAroundCentroid(items, zoomBoost = 1) {
   const out = new Map();
   if (!items.length) return out;
   if (items.length === 1) {
     out.set(items[0].id, { sx: items[0].sx, sy: items[0].sy });
     return out;
   }
+  const tuning = spreadTypeTuning(items[0]?.type);
+  const packGap = (tuning.gapPx ?? PACK_GAP_PX) * zoomBoost;
+  const seedRadius = (tuning.seedRadius ?? 0.5) * zoomBoost;
+  const radiusMul = (tuning.radiusMul ?? 1) * zoomBoost;
+  const centroidPull = tuning.centroidPull ?? 0.06;
   const cx = items.reduce((s, m) => s + m.sx, 0) / items.length;
   const cy = items.reduce((s, m) => s + m.sy, 0) / items.length;
   const positions = items.map((m, i) => {
     const seed = spreadSeed(m.id ?? i);
     const angle = ((seed % 360) + 360) % 360 * Math.PI / 180;
-    return { id: m.id, sx: cx + Math.cos(angle) * 0.5, sy: cy + Math.sin(angle) * 0.5, radius: m.radius };
+    return { id: m.id, sx: cx + Math.cos(angle) * seedRadius, sy: cy + Math.sin(angle) * seedRadius, radius: m.radius * radiusMul };
   });
   for (let iter = 0; iter < 32; iter++) {
     for (let i = 0; i < positions.length; i++) {
@@ -712,7 +745,7 @@ function packClusterAroundCentroid(items) {
         let dx = positions[j].sx - positions[i].sx;
         let dy = positions[j].sy - positions[i].sy;
         let dist = Math.hypot(dx, dy) || 0.001;
-        const minDist = positions[i].radius + positions[j].radius + PACK_GAP_PX;
+        const minDist = positions[i].radius + positions[j].radius + packGap;
         if (dist < minDist) {
           const push = (minDist - dist) / 2;
           const nx = dx / dist;
@@ -725,21 +758,22 @@ function packClusterAroundCentroid(items) {
       }
     }
     for (const p of positions) {
-      p.sx += (cx - p.sx) * 0.06;
-      p.sy += (cy - p.sy) * 0.06;
+      p.sx += (cx - p.sx) * centroidPull;
+      p.sy += (cy - p.sy) * centroidPull;
     }
   }
   positions.forEach(p => out.set(p.id, { sx: p.sx, sy: p.sy }));
   return out;
 }
 
-function computeMarkerSpreadLayout(items, shouldSpread) {
+function computeMarkerSpreadLayout(items, shouldSpread, zoomLevel = SPREAD_ZOOM_MIN) {
   const packed = new Map();
   if (!shouldSpread || items.length < 2) return packed;
-  const clusters = clusterByScreenProximity(items, CLUSTER_MERGE_PX);
+  const clusters = clusterByScreenProximity(items);
   for (const cluster of clusters) {
     if (cluster.length < 2) continue;
-    packClusterAroundCentroid(cluster).forEach((pos, id) => packed.set(id, pos));
+    const boost = spreadZoomBoost(cluster[0].type, zoomLevel);
+    packClusterAroundCentroid(cluster, boost).forEach((pos, id) => packed.set(id, pos));
   }
   return packed;
 }
@@ -772,16 +806,17 @@ function spreadMarkerClusters(markers, zoomFactor) {
     const lng = m.origLng ?? m.lng ?? m.lon;
     const sc = globe.getScreenCoords(lat, lng, m.alt ?? 0.01);
     if (!sc || isNaN(sc.x) || isNaN(sc.y)) return;
+    const tuning = spreadTypeTuning(m.type);
     items.push({
       id: idx,
       sx: sc.x,
       sy: sc.y,
       type: m.type,
-      radius: DEFAULT_MARKER_RADIUS_PX,
+      radius: DEFAULT_MARKER_RADIUS_PX * (tuning.radiusMul ?? 1),
     });
   });
 
-  const packed = computeMarkerSpreadLayout(items, true);
+  const packed = computeMarkerSpreadLayout(items, true, zoomFactor);
   if (!packed.size) return reset();
 
   return markers.map((m, idx) => {
@@ -824,11 +859,11 @@ function updateFlatMarkerSpread(k) {
     if (bx == null || by == null) return;
     const sx = transform.applyX(bx);
     const sy = transform.applyY(by);
-    const screenR = (rec.baseR || DEFAULT_MARKER_RADIUS_PX) * Math.sqrt(k);
+    const screenR = (rec.baseR || DEFAULT_MARKER_RADIUS_PX) * Math.sqrt(k) * (spreadTypeTuning(rec.type).radiusMul ?? 1);
     items.push({ id: idx, sx, sy, type: rec.type, radius: screenR });
   });
 
-  const packed = computeMarkerSpreadLayout(items, shouldSpread);
+  const packed = computeMarkerSpreadLayout(items, shouldSpread, k);
 
   _flatMarkerRecords.forEach((rec, idx) => {
     const [bx, by] = flatProjection([rec.origLon, rec.origLat]);
