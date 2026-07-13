@@ -1165,11 +1165,13 @@ function renderLeftRail(){
     </div>
     <div class="g-panel">
       <div class="sec-head"><h3>${t('panels.spaceWatch','Space Watch')}</h3><span class="badge">${t('badges.orbital','CELESTRAK')}</span></div>
+      ${D.space?.sourceOk === false ? `<div style="margin-bottom:6px;padding:6px 8px;border:1px solid rgba(255,152,0,0.35);background:rgba(255,152,0,0.06);font-family:var(--mono);font-size:9px;color:#ffab40;line-height:1.5">${t('space.sourceOffline','SOURCE OFFLINE THIS SWEEP')}${D.space.error ? `<br>${cleanText(String(D.space.error).substring(0,120))}` : ''}</div>` : ''}
       ${D.space ? `
         <div class="econ-row"><span class="elabel">New Objects (30d)</span><span class="eval" style="color:var(--accent2)">${D.space.totalNewObjects||0}</span></div>
         <div class="econ-row"><span class="elabel">Military Sats</span><span class="eval">${D.space.militarySats||0}</span></div>
-        <div class="econ-row"><span class="elabel">Starlink</span><span class="eval">${D.space.constellations?.starlink||0}</span></div>
-        <div class="econ-row"><span class="elabel">OneWeb</span><span class="eval">${D.space.constellations?.oneweb||0}</span></div>
+        <div class="econ-row"><span class="elabel">Starlink</span><span class="eval">${D.space.constellations?.starlink||0}${D.space.staleConstellations ? ' *' : ''}</span></div>
+        <div class="econ-row"><span class="elabel">OneWeb</span><span class="eval">${D.space.constellations?.oneweb||0}${D.space.staleConstellations ? ' *' : ''}</span></div>
+        ${D.space.staleConstellations ? `<div style="font-family:var(--mono);font-size:8px;color:var(--dim);margin:-2px 0 4px 0">${t('space.staleConstellations','* constellation counts cached (CelesTrak rate limit)')}</div>` : ''}
         ${D.space.iss ? `<div class="econ-row"><span class="elabel">ISS</span><span class="eval" style="color:var(--accent)">ALT ${((D.space.iss.apogee+D.space.iss.perigee)/2).toFixed(0)} km</span></div>` : ''}
         ${Object.entries(D.space.militaryByCountry||{}).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c,n])=>`<div class="econ-row"><span class="elabel" style="padding-left:8px">${c}</span><span class="eval" style="font-size:10px">${n} mil sats</span></div>`).join('')}
         ${(D.space.signals||[]).length ? `<div style="margin-top:6px;padding:6px 8px;border:1px solid rgba(68,204,255,0.2);background:rgba(68,204,255,0.04);font-family:var(--mono);font-size:9px;color:var(--accent2);line-height:1.5">${D.space.signals.slice(0,2).join('<br>')}</div>` : ''}

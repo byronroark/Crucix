@@ -248,7 +248,9 @@
     "totalTracked": "Total Tracked",
     "byCountry": "BY COUNTRY",
     "constellations": "CONSTELLATIONS",
-    "launches": "launches"
+    "launches": "launches",
+    "sourceOffline": "SOURCE OFFLINE THIS SWEEP",
+    "staleConstellations": "* constellation counts cached (CelesTrak rate limit)"
   },
   "europe": {
     "noAlerts": "NO ACTIVE ALERTS",

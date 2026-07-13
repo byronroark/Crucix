@@ -61,10 +61,16 @@ const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 export async function runSource(name, fn, ...args) {
   const start = Date.now();
   let timer;
+  let timeoutMs = SOURCE_TIMEOUT_MS;
+  const last = args[args.length - 1];
+  if (last && typeof last === 'object' && last.__timeoutMs) {
+    timeoutMs = last.__timeoutMs;
+    args = args.slice(0, -1);
+  }
   try {
     const dataPromise = fn(...args);
     const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Source ${name} timed out after ${SOURCE_TIMEOUT_MS / 1000}s`)), SOURCE_TIMEOUT_MS);
+      timer = setTimeout(() => reject(new Error(`Source ${name} timed out after ${timeoutMs / 1000}s`)), timeoutMs);
     });
     const data = await Promise.race([dataPromise, timeoutPromise]);
     return { name, status: 'ok', durationMs: Date.now() - start, data };
@@ -115,8 +121,8 @@ export async function fullBriefing() {
     runSource('Telegram', telegram),
     runSource('KiwiSDR', kiwisdr),
 
-    // Tier 4: Space & Satellites
-    runSource('Space', space),
+    // Tier 4: Space & Satellites (CelesTrak can be slow; allow extra time)
+    runSource('Space', space, { __timeoutMs: 60_000 }),
 
     // Tier 5: Live Market Data
     runSource('YFinance', yfinance),

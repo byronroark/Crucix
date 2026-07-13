@@ -208,7 +208,7 @@ export function generateIdeas(V2) {
   if (vix && vix.value > 20) {
     ideas.push({
       title: 'Elevated Volatility Regime',
-      text: `VIX at ${vix.value}  fear premium elevated. Portfolio hedges justified. Short-term equity upside is capped.`,
+      text: `VIX at ${vix.value} ? fear premium elevated. Portfolio hedges justified. Short-term equity upside is capped.`,
       type: 'hedge', confidence: vix.value > 25 ? 'High' : 'Medium', horizon: 'tactical'
     });
   }
@@ -234,7 +234,7 @@ export function generateIdeas(V2) {
   if (spread) {
     ideas.push({
       title: spread.value > 0 ? 'Yield Curve Normalizing' : 'Yield Curve Inverted',
-      text: `10Y-2Y spread at ${spread.value.toFixed(2)}. ${spread.value > 0 ? 'Recession signal fading  cyclical rotation possible.' : 'Inversion persists  defensive positioning warranted.'}`,
+      text: `10Y-2Y spread at ${spread.value.toFixed(2)}. ${spread.value > 0 ? 'Recession signal fading ? cyclical rotation possible.' : 'Inversion persists ? defensive positioning warranted.'}`,
       type: 'watch', confidence: 'Medium', horizon: 'strategic'
     });
   }
@@ -274,7 +274,7 @@ export function generateIdeas(V2) {
   if (conflictEvents > 50 && V2.energy.wtiRecent.length > 1) {
     const wtiMove = V2.energy.wtiRecent[0] - V2.energy.wtiRecent[V2.energy.wtiRecent.length - 1];
     const acledRange = V2.acled?.period
-      ? `${V2.acled.period.start}${V2.acled.period.end}`
+      ? `${V2.acled.period.start}?${V2.acled.period.end}`
       : 'lagged window';
     if (wtiMove > 2) {
       ideas.push({
@@ -311,7 +311,7 @@ export function generateIdeas(V2) {
     } else if (hyTight && vixHigh) {
       ideas.push({
         title: 'Equity Fear Exceeds Credit Stress',
-        text: `VIX at ${vix.value.toFixed(0)} but HY spread only ${hy.value.toFixed(1)}%. Equity vol may be overshooting  credit markets aren't confirming.`,
+        text: `VIX at ${vix.value.toFixed(0)} but HY spread only ${hy.value.toFixed(1)}%. Equity vol may be overshooting ? credit markets aren't confirming.`,
         type: 'watch', confidence: 'Medium', horizon: 'tactical'
       });
     }
@@ -326,7 +326,7 @@ export function generateIdeas(V2) {
     if (supplyPressure && ppiRising) {
       ideas.push({
         title: 'Inflation Pipeline Building Pressure',
-        text: `GSCPI at ${V2.gscpi.value.toFixed(2)} (${V2.gscpi.interpretation}) + PPI momentum +${ppi.momChangePct?.toFixed(1)}%. Input costs flowing through  CPI may follow.`,
+        text: `GSCPI at ${V2.gscpi.value.toFixed(2)} (${V2.gscpi.interpretation}) + PPI momentum +${ppi.momChangePct?.toFixed(1)}%. Input costs flowing through ? CPI may follow.`,
         type: 'long', confidence: 'Medium', horizon: 'strategic'
       });
     }
@@ -583,7 +583,7 @@ export async function synthesize(data) {
     events: (usgsData.events || []).filter(e => e.lat != null && e.lon != null),
   };
 
-  // EPA RadNet  pass through geo-tagged readings
+  // EPA RadNet ? pass through geo-tagged readings
   const epaData = data.sources.EPA || {};
   const epaStations = [];
   const seenEpa = new Set();
@@ -615,6 +615,10 @@ export async function synthesize(data) {
   }
   const issPos = estimateSatPosition(spaceData.iss);
   const spaceStations = (spaceData.spaceStations || []).map(s => estimateSatPosition(s)).filter(Boolean);
+  const spaceSourceFailed = !(data.sources.Space);
+  const spaceFetchError = (data.errors || []).find(e => e.name === 'Space')?.error
+    || spaceData.error
+    || null;
   const space = {
     totalNewObjects: spaceData.totalNewObjects || 0,
     militarySats: spaceData.militarySatellites || 0,
@@ -629,6 +633,11 @@ export async function synthesize(data) {
     })),
     launchByCountry: spaceData.launchByCountry || {},
     signals: spaceData.signals || [],
+    sourceOk: !spaceSourceFailed && spaceData.status !== 'error',
+    status: spaceData.status || (spaceSourceFailed ? 'error' : 'active'),
+    error: spaceSourceFailed ? (spaceFetchError || 'Space source did not return this sweep') : (spaceData.error || null),
+    warnings: spaceData.warnings || [],
+    staleConstellations: Boolean(spaceData.constellations?.stale),
   };
 
   // ACLED conflict events
@@ -726,9 +735,14 @@ export async function synthesize(data) {
     signals: adsbData.signals || [],
   };
 
-  const health = Object.entries(data.sources).map(([name, src]) => ({
-    n: name, err: Boolean(src.error), stale: Boolean(src.stale)
-  }));
+  const health = [
+    ...Object.entries(data.sources).map(([name, src]) => ({
+      n: name, err: Boolean(src.error), stale: Boolean(src.stale)
+    })),
+    ...(data.errors || []).map(e => ({
+      n: e.name, err: true, stale: false, error: e.error,
+    })),
+  ];
 
   const { markets, marketNews, metals, energyPatch } = buildWatchlistMarketPatch(data);
   Object.assign(energy, energyPatch);

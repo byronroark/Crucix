@@ -248,7 +248,9 @@
     "totalTracked": "Total Suivi",
     "byCountry": "PAR PAYS",
     "constellations": "CONSTELLATIONS",
-    "launches": "lancements"
+    "launches": "lancements",
+    "sourceOffline": "SOURCE HORS LIGNE CE BALAYAGE",
+    "staleConstellations": "* effectifs de constellation en cache (limite CelesTrak)"
   },
   "europe": {
     "noAlerts": "PAS D'ALERTES ACTIVES",
