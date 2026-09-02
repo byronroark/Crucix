@@ -234,6 +234,11 @@ export default {
     feed: process.env.EARTHQUAKE_FEED || 'day',
   },
 
+  // Dashboard map tiles (Local Weather Radar basemap)
+  maps: {
+    cartoApiKey: process.env.CARTO_API_KEY || null,
+  },
+
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs
   // Set to null to use built-in defaults.
   //

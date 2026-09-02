@@ -568,6 +568,9 @@ export async function synthesize(data) {
     nwsAlerts: data.sources.NOAA?.alerts || [],
     openWeatherAlerts: owmData.alerts || [],
   });
+  if (weatherPanel) {
+    weatherPanel.cartoApiKey = config.maps?.cartoApiKey || null;
+  }
 
   const hurricaneTracks = {
     storms: nhcData.storms || [],

@@ -2208,11 +2208,18 @@ async function initWeatherRadarMap() {
     preferCanvas: true,
   });
 
-  leaflet.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  const cartoKey = wp.cartoApiKey;
+  const cartoUrl = cartoKey
+    ? `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`
+    : 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png';
+  leaflet.tileLayer(cartoUrl, {
     maxZoom: 19,
     subdomains: 'abcd',
     errorTileUrl: '',
   }).addTo(_weatherRadarMap);
+  if (!cartoKey) {
+    console.warn('[Crucix] CARTO_API_KEY not set — radar basemap may show an API key watermark. Get a free key at https://carto.com/basemaps/apikey');
+  }
 
   leaflet.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
