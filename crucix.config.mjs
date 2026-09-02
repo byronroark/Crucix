@@ -236,7 +236,7 @@ export default {
 
   // Dashboard map tiles (Local Weather Radar basemap)
   maps: {
-    cartoApiKey: process.env.CARTO_API_KEY || null,
+    cartoApiKey: process.env.CARTO_API_KEY?.trim() || null,
   },
 
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs

@@ -338,10 +338,13 @@ app.get('/', (req, res) => {
     const htmlPath = join(ROOT, 'dashboard/public/jarvis.html');
     let html = readFileSync(htmlPath, 'utf-8');
     
-    // Inject locale data into the HTML
+    // Inject locale + map config into the HTML
     const locale = getLocale();
     const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${JSON.stringify(locale).replace(/<\/script>/gi, '<\\/script>')};</script>`;
-    html = html.replace('</head>', `${localeScript}\n</head>`);
+    const mapsScript = `<script>window.__CRUCIX_MAPS__ = ${JSON.stringify({
+      cartoBasemap: Boolean(config.maps?.cartoApiKey),
+    })};</script>`;
+    html = html.replace('</head>', `${localeScript}\n${mapsScript}\n</head>`);
     
     res.type('html').send(html);
   }
@@ -591,6 +594,32 @@ app.get('/api/weather/radar-manifest', async (req, res) => {
   }
 });
 
+// CARTO basemap tile proxy — keeps API key server-side for weather radar
+app.get('/api/maps/carto/:z/:x/:tile', async (req, res) => {
+  const key = config.maps?.cartoApiKey;
+  if (!key) return res.status(503).end();
+
+  const match = String(req.params.tile).match(/^(\d+)(@2x)?\.png$/);
+  if (!match) return res.status(404).end();
+
+  const { z, x } = req.params;
+  const y = match[1];
+  const retina = match[2] || '';
+  const sub = 'abcd'[Math.abs((+x + +y) % 4)];
+  const url = `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}${retina}.png?key=${encodeURIComponent(key)}`;
+
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return res.status(resp.status).end();
+    const buf = Buffer.from(await resp.arrayBuffer());
+    res.set('Content-Type', resp.headers.get('content-type') || 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buf);
+  } catch {
+    res.status(502).end();
+  }
+});
+
 // API: health check
 app.get('/api/health', (req, res) => {
   res.json({
@@ -610,6 +639,7 @@ app.get('/api/health', (req, res) => {
     telegramEnabled: !!(config.telegram.botToken && config.telegram.chatId),
     refreshIntervalMinutes: config.refreshIntervalMinutes,
     language: currentLanguage,
+    cartoConfigured: Boolean(config.maps?.cartoApiKey),
   });
 });
 
@@ -854,6 +884,11 @@ async function start() {
 
   server.on('listening', async () => {
     console.log(`[Crucix] Server running on http://localhost:${port}`);
+    if (config.maps?.cartoApiKey) {
+      console.log('[Crucix] CARTO basemap proxy enabled (weather radar)');
+    } else {
+      console.warn('[Crucix] CARTO_API_KEY not set — weather radar basemap may show a watermark');
+    }
 
     // Auto-open browser
     // NOTE: On Windows, `start` in PowerShell is an alias for Start-Service, not cmd's start.
