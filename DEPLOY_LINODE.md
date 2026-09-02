@@ -267,10 +267,12 @@ docker compose up -d --build
 docker compose logs -f crucix
 ```
 
+> **Redeploy rule:** always use `--build` after pulling code. `docker compose down && docker compose up -d` without `--build` reuses the old image.
+
 ### Change configuration
 
 1. Edit `.env` on the server (`nano .env`).
-2. `docker compose up -d` (restart is enough for env-only changes).
+2. `docker compose up -d` or `docker compose restart crucix` (env-only — no `--build` needed).
 
 ---
 

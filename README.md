@@ -200,7 +200,9 @@ ssh -L 3117:localhost:3117 user@<server-ip>
 
 Then open `http://localhost:3117`. For **you + trusted friends** without a tunnel, use **[DEPLOY_TAILSCALE.md](DEPLOY_TAILSCALE.md)** (free Tailscale Personal plan, up to 6 users). Do not expose port 3117 to the public internet without authentication.
 
-### Updating a running deployment
+### Updating a running deployment (redeploy)
+
+Source is baked into the Docker image at build time (`COPY . .` in the `Dockerfile`). After `git pull` or merging upstream changes, **rebuild the image** — restarting or recreating the container without `--build` leaves you on the old code.
 
 ```bash
 cd Crucix
@@ -208,6 +210,10 @@ git pull
 docker compose up -d --build
 docker compose logs --tail=50 crucix
 ```
+
+> **Common mistake:** `docker compose down && docker compose up -d` (without `--build`) reuses the cached image. Your `.env` changes apply, but **code changes do not** until you rebuild.
+
+**Env-only changes** (e.g. adding `CARTO_API_KEY` to `.env` with no code update): `docker compose up -d` or `docker compose restart crucix` is enough — no `--build` required.
 
 To merge upstream Crucix improvements into this fork, see [FORK_MAINTENANCE.md](FORK_MAINTENANCE.md).
 

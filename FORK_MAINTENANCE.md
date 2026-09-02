@@ -185,7 +185,7 @@ When resolving conflicts in these files, the rule of thumb is: **keep upstream's
 
 ## After every sync: rebuild the Docker image
 
-Source files are baked into the Docker image at build time (`COPY . .` in `Dockerfile`). A plain `docker compose restart` will **not** pick up new code. Always rebuild:
+Source files are baked into the Docker image at build time (`COPY . .` in `Dockerfile`). A plain `docker compose restart` or `docker compose down && docker compose up -d` (without `--build`) will **not** pick up new code. Always rebuild after `git pull`:
 
 ```powershell
 docker compose up -d --build

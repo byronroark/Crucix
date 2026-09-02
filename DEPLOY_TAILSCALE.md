@@ -256,7 +256,7 @@ Tailnet members open `https://crucix` (exact URL shown by `tailscale serve statu
 
 **Telegram bot `/status` shows localhost**
 
-- Set `PUBLIC_URL=http://crucix:3117` in `.env` and `docker compose up -d`.
+- Set `PUBLIC_URL=http://crucix:3117` in `.env` and `docker compose up -d` (env-only — no `--build` needed).
 
 ---
 
