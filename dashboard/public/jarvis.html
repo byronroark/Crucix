@@ -2208,16 +2208,13 @@ async function initWeatherRadarMap() {
     preferCanvas: true,
   });
 
-  const cartoProxy = !!(window.__CRUCIX_MAPS__?.cartoBasemap);
-  const cartoKey = cartoProxy || wp.cartoApiKey;
-  const cartoUrl = cartoProxy
-    ? '/api/maps/carto/{z}/{x}/{y}{r}.png'
-    : wp.cartoApiKey
-      ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(wp.cartoApiKey)}`
-      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const cartoKey = window.__CRUCIX_MAPS__?.cartoApiKey || wp.cartoApiKey || null;
+  const cartoUrl = cartoKey
+    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`
+    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
   leaflet.tileLayer(cartoUrl, {
     maxZoom: 19,
-    subdomains: cartoProxy ? undefined : 'abcd',
+    subdomains: 'abcd',
     errorTileUrl: '',
   }).addTo(_weatherRadarMap);
   if (!cartoKey) {

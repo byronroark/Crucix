@@ -342,7 +342,7 @@ app.get('/', (req, res) => {
     const locale = getLocale();
     const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${JSON.stringify(locale).replace(/<\/script>/gi, '<\\/script>')};</script>`;
     const mapsScript = `<script>window.__CRUCIX_MAPS__ = ${JSON.stringify({
-      cartoBasemap: Boolean(config.maps?.cartoApiKey),
+      cartoApiKey: config.maps?.cartoApiKey || null,
     })};</script>`;
     html = html.replace('</head>', `${localeScript}\n${mapsScript}\n</head>`);
     
@@ -591,32 +591,6 @@ app.get('/api/weather/radar-manifest', async (req, res) => {
     res.json(await resp.json());
   } catch (err) {
     res.status(502).json({ error: err.message || 'RainViewer fetch failed' });
-  }
-});
-
-// CARTO basemap tile proxy — keeps API key server-side for weather radar
-app.get('/api/maps/carto/:z/:x/:tile', async (req, res) => {
-  const key = config.maps?.cartoApiKey;
-  if (!key) return res.status(503).end();
-
-  const match = String(req.params.tile).match(/^(\d+)(@2x)?\.png$/);
-  if (!match) return res.status(404).end();
-
-  const { z, x } = req.params;
-  const y = match[1];
-  const retina = match[2] || '';
-  const sub = 'abcd'[Math.abs((+x + +y) % 4)];
-  const url = `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}${retina}.png?key=${encodeURIComponent(key)}`;
-
-  try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!resp.ok) return res.status(resp.status).end();
-    const buf = Buffer.from(await resp.arrayBuffer());
-    res.set('Content-Type', resp.headers.get('content-type') || 'image/png');
-    res.set('Cache-Control', 'public, max-age=86400');
-    res.send(buf);
-  } catch {
-    res.status(502).end();
   }
 });
 
@@ -885,7 +859,7 @@ async function start() {
   server.on('listening', async () => {
     console.log(`[Crucix] Server running on http://localhost:${port}`);
     if (config.maps?.cartoApiKey) {
-      console.log('[Crucix] CARTO basemap proxy enabled (weather radar)');
+      console.log('[Crucix] CARTO basemap key configured (weather radar)');
     } else {
       console.warn('[Crucix] CARTO_API_KEY not set — weather radar basemap may show a watermark');
     }
