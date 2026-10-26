@@ -41,16 +41,18 @@ const delta = memory.getLastDelta();
 
 console.log('[test-ideas] Calling generateLLMIdeas...');
 const t0 = Date.now();
-const ideas = await generateLLMIdeas(provider, synthesized, delta, []);
+const result = await generateLLMIdeas(provider, synthesized, delta, []);
 const ms = Date.now() - t0;
+const ideas = result.ideas;
 
 if (!ideas?.length) {
-  console.error(`\n[test-ideas] FAIL (${ms}ms) — returned null or empty.`);
+  console.error(`\n[test-ideas] FAIL (${ms}ms) — ${result.error?.reason || 'empty'}: ${result.error?.message || 'null or empty'}.`);
   console.error('[test-ideas] Check runs/.cache/llm/parse-fail-ideas.txt for raw response.');
   process.exit(1);
 }
 
-console.log(`\n[test-ideas] OK (${ms}ms) — ${ideas.length} ideas:\n`);
+console.log(`\n[test-ideas] OK (${ms}ms) — ${ideas.length} ideas`
+  + (result.retried ? ' (recovered via in-sweep retry)' : '') + ':\n');
 for (const it of ideas) {
   console.log(`  [${it.confidence}] ${it.type} — ${it.title} (${it.ticker || 'n/a'})`);
 }

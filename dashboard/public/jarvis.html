@@ -2447,6 +2447,14 @@ function renderLower(){
   // Leverageable Ideas (LLM-only feature)
   const ideasSrc = D.ideasSource || 'disabled';
   const hasIdeas = D.ideas && D.ideas.length > 0;
+  const llmFailDetail = (reason) => {
+    if (reason === 'parse') return 'LLM responded but output could not be parsed. Retrying next sweep.';
+    if (reason === 'empty') return 'LLM returned an empty response. Retrying next sweep.';
+    if (reason === 'timeout') return 'LLM request timed out. Retrying next sweep.';
+    if (reason === 'api') return 'LLM API error. Retrying next sweep.';
+    return 'Last attempt failed; retrying next sweep.';
+  };
+  const ideasFailReason = D.ideasErrorReason || 'parse';
   const ideasEmpty = ideasSrc === 'disabled'
     ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
         <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#9888;</div>
@@ -2457,7 +2465,7 @@ function renderLower(){
       ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
           <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#8987;</div>
           <div>GENERATION FAILED</div>
-          <div style="font-size:9px;margin-top:6px;opacity:0.6">LLM responded but output could not be parsed. Retrying next sweep.</div>
+          <div style="font-size:9px;margin-top:6px;opacity:0.6">${llmFailDetail(ideasFailReason)}</div>
         </div>`
       : `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
           <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#8987;</div>
@@ -2615,6 +2623,7 @@ function renderLower(){
         : intelSrc === 'llm-failed'
           ? '<span class="intel-src static">RETRY NEXT SWEEP</span>'
           : '<span class="intel-src static">PENDING</span>';
+  const intelFailReason = D.intelAnalysisErrorReason || 'parse';
   const intelEmpty = intelSrc === 'no-input'
     ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
         <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#9737;</div>
@@ -2627,10 +2636,16 @@ function renderLower(){
           <div>LLM NOT CONFIGURED</div>
           <div style="font-size:9px;margin-top:6px;opacity:0.6">Set LLM_PROVIDER + credentials in .env to enable AI synthesis</div>
         </div>`
+      : intelSrc === 'llm-failed'
+      ? `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
+          <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#8987;</div>
+          <div>ANALYSIS FAILED</div>
+          <div style="font-size:9px;margin-top:6px;opacity:0.6">${llmFailDetail(intelFailReason)}</div>
+        </div>`
       : `<div style="padding:20px;text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px">
           <div style="font-size:24px;margin-bottom:8px;opacity:0.3">&#8987;</div>
           <div>NO ANALYSIS YET</div>
-          <div style="font-size:9px;margin-top:6px;opacity:0.6">${intelSrc === 'llm-failed' ? 'Last attempt failed; retrying next sweep.' : 'Waiting for next sweep.'}</div>
+          <div style="font-size:9px;margin-top:6px;opacity:0.6">Waiting for next sweep.</div>
         </div>`;
   const intelHtml = intelItems.length ? intelItems.map(it => {
     const conf = String(it.confidence || 'MEDIUM').toLowerCase();
