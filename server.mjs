@@ -379,8 +379,12 @@ async function hotRefreshCustomSources() {
       synthesized.delta = currentData.delta;
       synthesized.ideas = currentData.ideas || [];
       synthesized.ideasSource = currentData.ideasSource;
+      synthesized.ideasErrorReason = currentData.ideasErrorReason || null;
+      synthesized.ideasErrorMessage = currentData.ideasErrorMessage || null;
       synthesized.intelAnalysis = currentData.intelAnalysis || [];
       synthesized.intelAnalysisSource = currentData.intelAnalysisSource;
+      synthesized.intelAnalysisErrorReason = currentData.intelAnalysisErrorReason || null;
+      synthesized.intelAnalysisErrorMessage = currentData.intelAnalysisErrorMessage || null;
       synthesized.marketIntel = currentData.marketIntel || [];
       synthesized.marketIntelSource = currentData.marketIntelSource;
     }
@@ -701,23 +705,33 @@ async function runSweepCycle() {
       try {
         console.log('[Crucix] Generating LLM trade ideas...');
         const previousIdeas = memory.getLastRun()?.ideas || [];
-        const llmIdeas = await generateLLMIdeas(llmProvider, synthesized, delta, previousIdeas);
-        if (llmIdeas) {
-          synthesized.ideas = llmIdeas;
+        const ideasResult = await generateLLMIdeas(llmProvider, synthesized, delta, previousIdeas);
+        if (ideasResult.ideas?.length) {
+          synthesized.ideas = ideasResult.ideas;
           synthesized.ideasSource = 'llm';
-          console.log(`[Crucix] LLM generated ${llmIdeas.length} ideas`);
+          synthesized.ideasErrorReason = null;
+          synthesized.ideasErrorMessage = null;
+          console.log(`[Crucix] LLM generated ${ideasResult.ideas.length} ideas`
+            + (ideasResult.retried ? ' (after in-sweep retry)' : ''));
         } else {
           synthesized.ideas = [];
           synthesized.ideasSource = 'llm-failed';
+          synthesized.ideasErrorReason = ideasResult.error?.reason || 'parse';
+          synthesized.ideasErrorMessage = ideasResult.error?.message || 'LLM ideas generation failed';
+          console.warn(`[Crucix] LLM ideas failed (${synthesized.ideasErrorReason}): ${synthesized.ideasErrorMessage}`);
         }
       } catch (llmErr) {
         console.error('[Crucix] LLM ideas failed (non-fatal):', llmErr.message);
         synthesized.ideas = [];
         synthesized.ideasSource = 'llm-failed';
+        synthesized.ideasErrorReason = /timeout|aborted|AbortError|timed out/i.test(llmErr.message) ? 'timeout' : 'api';
+        synthesized.ideasErrorMessage = llmErr.message;
       }
     } else {
       synthesized.ideas = [];
       synthesized.ideasSource = 'disabled';
+      synthesized.ideasErrorReason = null;
+      synthesized.ideasErrorMessage = null;
     }
 
     // 5b. Intelligence Analysis — multi-pool OSINT synthesis
@@ -729,26 +743,38 @@ async function runSweepCycle() {
           .map(([k, n]) => `${k}:${n}`)
           .join(', ');
         console.log(`[Crucix] Generating Intelligence Analysis (${poolSummary})...`);
-        const intel = await generateIntelAnalysis(llmProvider, { ...synthesized, _delta: delta }, config);
-        if (intel && intel.length) {
-          synthesized.intelAnalysis = intel;
+        const intelResult = await generateIntelAnalysis(llmProvider, { ...synthesized, _delta: delta }, config);
+        if (intelResult.items?.length) {
+          synthesized.intelAnalysis = intelResult.items;
           synthesized.intelAnalysisSource = 'llm';
-          console.log(`[Crucix] Intel Analysis generated ${intel.length} items`);
+          synthesized.intelAnalysisErrorReason = null;
+          synthesized.intelAnalysisErrorMessage = null;
+          console.log(`[Crucix] Intel Analysis generated ${intelResult.items.length} items`
+            + (intelResult.retried ? ' (after in-sweep retry)' : ''));
         } else {
           synthesized.intelAnalysis = [];
           synthesized.intelAnalysisSource = 'llm-failed';
+          synthesized.intelAnalysisErrorReason = intelResult.error?.reason || 'parse';
+          synthesized.intelAnalysisErrorMessage = intelResult.error?.message || 'Intel analysis generation failed';
+          console.warn(`[Crucix] Intel Analysis failed (${synthesized.intelAnalysisErrorReason}): ${synthesized.intelAnalysisErrorMessage}`);
         }
       } catch (intelErr) {
         console.error('[Crucix] Intel Analysis failed (non-fatal):', intelErr.message);
         synthesized.intelAnalysis = [];
         synthesized.intelAnalysisSource = 'llm-failed';
+        synthesized.intelAnalysisErrorReason = /timeout|aborted|AbortError|timed out/i.test(intelErr.message) ? 'timeout' : 'api';
+        synthesized.intelAnalysisErrorMessage = intelErr.message;
       }
     } else if (!llmProvider?.isConfigured) {
       synthesized.intelAnalysis = [];
       synthesized.intelAnalysisSource = 'disabled';
+      synthesized.intelAnalysisErrorReason = null;
+      synthesized.intelAnalysisErrorMessage = null;
     } else {
       synthesized.intelAnalysis = [];
       synthesized.intelAnalysisSource = 'no-input';
+      synthesized.intelAnalysisErrorReason = 'no-input';
+      synthesized.intelAnalysisErrorMessage = 'Insufficient OSINT pools for intel analysis';
     }
 
     // 5c. Market Intelligence — watchlist-scoped news synthesis

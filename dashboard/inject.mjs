@@ -936,19 +936,25 @@ async function cliInject() {
   if (llmProvider?.isConfigured) {
     try {
       console.log(`[LLM] Generating ideas via ${llmProvider.name}...`);
-      const llmIdeas = await generateLLMIdeas(llmProvider, V2, null, []);
-      if (llmIdeas?.length) {
-        V2.ideas = llmIdeas;
+      const ideasResult = await generateLLMIdeas(llmProvider, V2, null, []);
+      if (ideasResult.ideas?.length) {
+        V2.ideas = ideasResult.ideas;
         V2.ideasSource = 'llm';
-        console.log(`[LLM] Generated ${llmIdeas.length} ideas`);
+        V2.ideasErrorReason = null;
+        V2.ideasErrorMessage = null;
+        console.log(`[LLM] Generated ${ideasResult.ideas.length} ideas`);
       } else {
         V2.ideas = [];
         V2.ideasSource = 'llm-failed';
-        console.log('[LLM] No ideas returned');
+        V2.ideasErrorReason = ideasResult.error?.reason || 'parse';
+        V2.ideasErrorMessage = ideasResult.error?.message || 'No ideas returned';
+        console.log(`[LLM] No ideas returned (${V2.ideasErrorReason})`);
       }
     } catch (err) {
       V2.ideas = [];
       V2.ideasSource = 'llm-failed';
+      V2.ideasErrorReason = /timeout|aborted|AbortError|timed out/i.test(err.message) ? 'timeout' : 'api';
+      V2.ideasErrorMessage = err.message;
       console.log('[LLM] Idea generation failed:', err.message);
     }
   } else {

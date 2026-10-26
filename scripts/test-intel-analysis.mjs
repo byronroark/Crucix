@@ -42,15 +42,17 @@ if (!hasIntelInput(synthesized, config)) {
 console.log(`\n[test-intel] customAnalyzed items: ${(synthesized.customAnalyzed || []).length} (optional)`);
 console.log('\n[test-intel] Calling generateIntelAnalysis...');
 const t0 = Date.now();
-const intel = await generateIntelAnalysis(provider, synthesized, config);
+const result = await generateIntelAnalysis(provider, synthesized, config);
 const ms = Date.now() - t0;
+const intel = result.items;
 
 if (!intel?.length) {
-  console.error(`\n[test-intel] FAIL (${ms}ms) — returned null or empty.`);
+  console.error(`\n[test-intel] FAIL (${ms}ms) — ${result.error?.reason || 'empty'}: ${result.error?.message || 'null or empty'}.`);
   process.exit(1);
 }
 
-console.log(`\n[test-intel] OK (${ms}ms) — ${intel.length} items:\n`);
+console.log(`\n[test-intel] OK (${ms}ms) — ${intel.length} items`
+  + (result.retried ? ' (recovered via in-sweep retry)' : '') + ':\n');
 for (const it of intel) {
   console.log(`  [${it.confidence}] ${it.title}`);
   console.log(`    sources: ${(it.sources || []).join(', ')}`);
