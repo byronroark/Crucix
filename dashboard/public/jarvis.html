@@ -117,7 +117,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 #flatMapTiles{display:none;width:100%;height:100%;position:absolute;top:0;left:0;z-index:1;background:#0a1014}
 #flatMapSvg{z-index:2}
 #flatMapTiles .leaflet-container{background:#0a1014;font-family:var(--mono)}
-.watchfloor-pin{background:transparent!important;border:none!important}
+.watchfloor-pin{background:transparent!important;border:none!important;cursor:pointer}
 .watchfloor-pin-inner{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:700;color:#0a1014;box-shadow:0 0 0 1.5px rgba(0,0,0,0.55),0 0 8px rgba(0,0,0,0.4)}
 .watchfloor-pin-inner.osint{background:#ffb84c}
 .watchfloor-pin-inner.news{background:#81d4fa}
@@ -131,6 +131,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .watchfloor-teardrop.osint{--pin-accent:#ff5f63}
 .watchfloor-teardrop.news{--pin-accent:#81d4fa}
 .watchfloor-teardrop.custom{--pin-accent:#ce93d8}
+#flatMapTiles .leaflet-marker-icon:hover .watchfloor-teardrop{filter:drop-shadow(0 0 6px rgba(100,240,200,0.55)) drop-shadow(0 1px 2px rgba(0,0,0,0.65));transform:translateY(-1px)}
+#flatMapTiles .leaflet-marker-icon:hover .watchfloor-pin-inner{box-shadow:0 0 0 1.5px rgba(100,240,200,0.55),0 0 10px rgba(100,240,200,0.35)}
 #flatMapTiles .leaflet-control-zoom{border:1px solid rgba(100,240,200,0.25)!important;box-shadow:none!important}
 #flatMapTiles .leaflet-control-zoom a{background:rgba(6,14,22,0.92)!important;color:var(--dim)!important;width:28px!important;height:28px!important;line-height:28px!important;font-family:var(--mono)!important;border-bottom-color:rgba(100,240,200,0.15)!important}
 #flatMapTiles .leaflet-control-zoom a:hover{color:var(--accent)!important;background:rgba(100,240,200,0.08)!important}
@@ -694,6 +696,7 @@ let _flatMarkerRecords = [];
 let _flatZoomK = 1;
 let _watchfloorLeaflet = null;
 let _watchfloorMarkerLayer = null;
+let _watchfloorHoverCloseTimer = null;
 const WATCHFLOOR_LAYER_IDS = new Set(['osint', 'news', 'custom']);
 const SITUATION_LAYER_BACKUP_KEY = 'crucix.layerVisibility.preWatchfloor';
 
@@ -1373,7 +1376,7 @@ function initMap(){
     document.getElementById('globeViz').style.display = 'none';
     document.getElementById('projToggle').textContent = 'GLOBE MODE';
     document.getElementById('mapHint').textContent = intelMapMode==='watchfloor'
-      ? 'WATCHFLOOR · SCROLL TO STREET DETAIL · CLICK PIN TO ZOOM'
+      ? 'WATCHFLOOR · HOVER PIN TO READ · CLICK TO ZOOM'
       : 'SCROLL TO ZOOM · DRAG TO PAN';
     if(intelMapMode==='watchfloor'){
       document.getElementById('flatMapSvg').style.display = 'none';
@@ -1883,7 +1886,7 @@ function toggleMapMode(){
   const hint = document.getElementById('mapHint');
   btn.textContent = isFlat ? 'GLOBE MODE' : 'FLAT MODE';
   hint.textContent = isFlat
-    ? (intelMapMode==='watchfloor' ? 'WATCHFLOOR · SCROLL TO STREET DETAIL · CLICK PIN TO ZOOM' : 'SCROLL TO ZOOM · DRAG TO PAN')
+    ? (intelMapMode==='watchfloor' ? 'WATCHFLOOR · HOVER PIN TO READ · CLICK TO ZOOM' : 'SCROLL TO ZOOM · DRAG TO PAN')
     : 'DRAG TO ROTATE · SCROLL TO ZOOM';
   const globeEl = document.getElementById('globeViz');
   const flatEl = document.getElementById('flatMapSvg');
@@ -2210,7 +2213,7 @@ function setIntelMapMode(mode){
   const hint = document.getElementById('mapHint');
   if(hint && isFlat){
     hint.textContent = intelMapMode==='watchfloor'
-      ? 'WATCHFLOOR · SCROLL TO STREET DETAIL · CLICK PIN TO ZOOM'
+      ? 'WATCHFLOOR · HOVER PIN TO READ · CLICK TO ZOOM'
       : 'SCROLL TO ZOOM · DRAG TO PAN';
   }
   if(isFlat){
@@ -2341,14 +2344,49 @@ function fitWatchfloorLeafletView(){
   });
 }
 
+function cancelWatchfloorHoverClose(){
+  if(_watchfloorHoverCloseTimer){
+    clearTimeout(_watchfloorHoverCloseTimer);
+    _watchfloorHoverCloseTimer = null;
+  }
+}
+
+function scheduleWatchfloorHoverClose(){
+  cancelWatchfloorHoverClose();
+  _watchfloorHoverCloseTimer = setTimeout(() => {
+    const popup = document.getElementById('mapPopup');
+    if(popup && popup.matches(':hover')) return;
+    closePopup();
+    _watchfloorHoverCloseTimer = null;
+  }, 200);
+}
+
+function bindWatchfloorPopupHoverBridge(){
+  const popup = document.getElementById('mapPopup');
+  if(!popup || popup.dataset.watchfloorHoverBound === '1') return;
+  popup.dataset.watchfloorHoverBound = '1';
+  popup.addEventListener('mouseenter', cancelWatchfloorHoverClose);
+  popup.addEventListener('mouseleave', scheduleWatchfloorHoverClose);
+}
+
 function plotWatchfloorLeafletMarkers(){
   if(!_watchfloorLeaflet || !_watchfloorMarkerLayer) return;
+  bindWatchfloorPopupHoverBridge();
   _watchfloorMarkerLayer.clearLayers();
   const add = (lat, lon, kind, head, text, meta) => {
     if(lat==null||lon==null||!Number.isFinite(+lat)||!Number.isFinite(+lon)) return;
     const m = window.L.marker([+lat, +lon], { icon: watchfloorDivIcon(kind), riseOnHover: true });
+    m.on('mouseover', (ev) => {
+      cancelWatchfloorHoverClose();
+      if(ev.originalEvent) ev.originalEvent.stopPropagation();
+      showPopup(ev.originalEvent, head, text, meta, lat, lon);
+    });
+    m.on('mouseout', () => {
+      scheduleWatchfloorHoverClose();
+    });
     m.on('click', (ev) => {
       if(ev.originalEvent) ev.originalEvent.stopPropagation();
+      cancelWatchfloorHoverClose();
       // Deep-zoom to street/city detail on pin select (roads + labels appear ~z12+)
       flyWatchfloorToDetail(lat, lon);
       showPopup(ev.originalEvent, head, text, meta, lat, lon);
