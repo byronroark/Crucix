@@ -17,6 +17,7 @@ import { createLLMProvider } from '../lib/llm/index.mjs';
 import { generateLLMIdeas } from '../lib/llm/ideas.mjs';
 import { geoTagText, RSS_SOURCE_FALLBACKS } from '../lib/geocode/keywords.mjs';
 import { buildCustomGeo } from '../lib/geocode/build-custom-geo.mjs';
+import { buildHumintGeo } from '../lib/geocode/build-humint-geo.mjs';
 import { mergeWeatherDots } from '../lib/weather/merge-weather-alerts.mjs';
 import { buildWeatherPanel, weatherFeedItems } from '../lib/weather/build-weather-panel.mjs';
 
@@ -807,6 +808,37 @@ export async function synthesize(data) {
     console.error('[Crucix] buildCustomGeo failed:', err.message);
   }
 
+  // Geocode Telegram urgent/top posts for OSINT / HUMINT map pins (drop unlocated).
+  let humint = [];
+  try {
+    humint = await buildHumintGeo(tgUrgent, tgTop);
+  } catch (err) {
+    console.error('[Crucix] buildHumintGeo failed:', err.message);
+  }
+
+  // Apocalypse EWS — lightweight extract only (no liveAircraft)
+  const ewsRaw = data.sources.EWS || {};
+  const ews = ewsRaw.disabled || ewsRaw.error || ewsRaw.level == null
+    ? {
+        level: null,
+        asOf: null,
+        concurrentCount: null,
+        baselineMean: null,
+        zScore: null,
+        url: 'https://ews.kylemcdonald.net/',
+        error: ewsRaw.error || (ewsRaw.disabled ? 'disabled' : 'unavailable'),
+      }
+    : {
+        level: ewsRaw.level,
+        asOf: ewsRaw.asOf || null,
+        concurrentCount: ewsRaw.concurrentCount ?? null,
+        baselineMean: ewsRaw.baselineMean ?? null,
+        zScore: ewsRaw.zScore ?? null,
+        alertLevel: ewsRaw.alertLevel || null,
+        url: ewsRaw.url || 'https://ews.kylemcdonald.net/',
+        composite: ewsRaw.composite || null,
+      };
+
   const V2 = {
     meta: data.crucix, air, thermal, tSignals, chokepoints, nuke, nukeSignals,
     airMeta: {
@@ -828,6 +860,8 @@ export async function synthesize(data) {
     // Custom user-defined sources (config + drop-in modules)
     customTicker, customAnalyzed, customGeo,
     customFeedErrors: cf.errors || [],
+    // HUMINT map pins (geocoded Telegram) + Apocalypse EWS dial
+    humint, ews,
     intelAnalysis: [], intelAnalysisSource: config.llm?.provider ? 'pending' : 'disabled',
     // newsFeed for ticker (merged RSS + GDELT + Telegram + custom-ticker)
     newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop, customTicker, weatherFeedItems(weatherPanel)),

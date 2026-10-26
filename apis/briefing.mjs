@@ -40,6 +40,7 @@ import { briefing as bluesky } from './sources/bluesky.mjs';
 import { briefing as reddit } from './sources/reddit.mjs';
 import { briefing as telegram } from './sources/telegram.mjs';
 import { briefing as kiwisdr } from './sources/kiwisdr.mjs';
+import { briefing as ews } from './sources/ews.mjs';
 
 // === Tier 4: Space & Satellites ===
 import { briefing as space } from './sources/space.mjs';
@@ -82,7 +83,7 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 35 sources (incl. custom)...');
+  console.error('[Crucix] Starting intelligence sweep — 36 sources (incl. custom + EWS)...');
   const start = Date.now();
 
   const allPromises = [
@@ -120,6 +121,7 @@ export async function fullBriefing() {
     runSource('Reddit', reddit),
     runSource('Telegram', telegram),
     runSource('KiwiSDR', kiwisdr),
+    runSource('EWS', ews),
 
     // Tier 4: Space & Satellites (CelesTrak can be slow; allow extra time)
     runSource('Space', space, { __timeoutMs: 60_000 }),

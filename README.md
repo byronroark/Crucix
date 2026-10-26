@@ -236,7 +236,9 @@ To merge upstream Crucix improvements into this fork, see [FORK_MAINTENANCE.md](
 A self-contained Jarvis-style HUD with:
 
 - **3D WebGL globe** (Globe.gl) with atmosphere glow, star field, and smooth rotation — plus a classic flat map toggle
-- **9 marker types** across both views: fire detections, air traffic, radiation sites, maritime chokepoints, SDR receivers, OSINT events, health alerts, geolocated news, conflict events
+- **Situation vs HUMINT map mode** — multi-layer world view, or Telegram + news/custom pins on deep-zoom dark CARTO tiles
+- **Apocalypse EWS dial** (1–5) in the topbar from the public Kyle McDonald snapshot, with Telegram FLASH on any level change
+- **9+ marker types** across both views: fire detections, air traffic, radiation sites, maritime chokepoints, SDR receivers, geocoded OSINT/HUMINT, health alerts, geolocated news, conflict events
 - **Animated 3D flight corridor arcs** between air traffic hotspots and global hubs
 - **Region filters** (World, Americas, Europe, Middle East, Asia Pacific, Africa) — rotates the globe or zooms the flat map
 - **Live market data** — indexes, crypto, energy, commodities via Yahoo Finance (no API key needed)

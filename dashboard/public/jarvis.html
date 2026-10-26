@@ -108,10 +108,53 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 #globeViz{width:100%;height:100%;cursor:grab}
 #globeViz:active{cursor:grabbing}
 #globeViz canvas{outline:none}
-#flatMapSvg .land{fill:rgba(180,200,210,0.08);stroke:rgba(200,220,230,0.15);stroke-width:0.5}
+#flatMapSvg .land{fill:rgba(180,200,210,0.10);stroke:rgba(200,220,230,0.22);stroke-width:0.45}
 #flatMapSvg .land:hover{fill:rgba(100,240,200,0.08)}
 #flatMapSvg .graticule{fill:none;stroke:rgba(100,240,200,0.04);stroke-width:0.4}
-#flatMapSvg .border{fill:none;stroke:rgba(200,220,230,0.08);stroke-width:0.3}
+#flatMapSvg .border{fill:none;stroke:rgba(210,225,235,0.28);stroke-width:0.55}
+#flatMapSvg .border-subunit{fill:none;stroke:rgba(180,200,210,0.12);stroke-width:0.35}
+#flatMapSvg .country-label{fill:rgba(200,220,230,0.55);font-family:var(--mono);font-size:7px;letter-spacing:0.06em;pointer-events:none;text-anchor:middle}
+#flatMapTiles{display:none;width:100%;height:100%;position:absolute;top:0;left:0;z-index:1;background:#0a1014}
+#flatMapSvg{z-index:2}
+#flatMapTiles .leaflet-container{background:#0a1014;font-family:var(--mono)}
+.humint-pin{background:transparent!important;border:none!important}
+.humint-pin-inner{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:700;color:#0a1014;box-shadow:0 0 0 1.5px rgba(0,0,0,0.55),0 0 8px rgba(0,0,0,0.4)}
+.humint-pin-inner.osint{background:#ffb84c}
+.humint-pin-inner.news{background:#81d4fa}
+.humint-pin-inner.custom{background:#ce93d8}
+.humint-pin-inner.conflict{background:#ff7850}
+.humint-pin-inner.cluster{background:#e8eef2;min-width:22px;padding:0 4px;border-radius:11px}
+/* Teardrop pins for deep-zoom HUMINT (street/city detail) */
+.humint-teardrop{position:relative;width:18px;height:24px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.65))}
+.humint-teardrop::before{content:'';position:absolute;left:0;top:0;width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#f2f4f6;border:1.5px solid rgba(0,0,0,0.55)}
+.humint-teardrop::after{content:'';position:absolute;left:5px;top:5px;width:8px;height:8px;border-radius:50%;background:var(--pin-accent,#ff5f63);z-index:1}
+.humint-teardrop.osint{--pin-accent:#ff5f63}
+.humint-teardrop.news{--pin-accent:#81d4fa}
+.humint-teardrop.custom{--pin-accent:#ce93d8}
+#flatMapTiles .leaflet-control-zoom{border:1px solid rgba(100,240,200,0.25)!important;box-shadow:none!important}
+#flatMapTiles .leaflet-control-zoom a{background:rgba(6,14,22,0.92)!important;color:var(--dim)!important;width:28px!important;height:28px!important;line-height:28px!important;font-family:var(--mono)!important;border-bottom-color:rgba(100,240,200,0.15)!important}
+#flatMapTiles .leaflet-control-zoom a:hover{color:var(--accent)!important;background:rgba(100,240,200,0.08)!important}
+.map-mode-toggle{position:absolute;top:8px;left:168px;z-index:6;display:flex;gap:0;backdrop-filter:blur(8px)}
+.map-mode-btn{padding:5px 10px;border:1px solid var(--border);background:rgba(0,0,0,0.6);font-family:var(--mono);font-size:9px;cursor:pointer;color:var(--dim);letter-spacing:0.08em;text-transform:uppercase;transition:all 0.2s}
+.map-mode-btn:first-child{border-right:none}
+.map-mode-btn:hover{border-color:var(--accent);color:var(--accent)}
+.map-mode-btn.active{color:var(--bg);background:var(--accent);border-color:var(--accent)}
+.ews-dial{display:inline-flex;align-items:center;gap:8px;padding:4px 10px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;border:1px solid rgba(100,240,200,0.25);background:rgba(100,240,200,0.06);color:var(--text);text-decoration:none}
+.ews-dial:hover{border-color:var(--accent);color:var(--accent)}
+.ews-dial .ews-label{color:var(--dim);font-size:8px}
+.ews-dial .ews-level{font-size:14px;font-weight:700;min-width:1.2em;text-align:center}
+.ews-dial.l1{border-color:rgba(100,240,200,0.35);background:rgba(100,240,200,0.08)}.ews-dial.l1 .ews-level{color:var(--accent)}
+.ews-dial.l2{border-color:rgba(255,224,130,0.4);background:rgba(255,224,130,0.08)}.ews-dial.l2 .ews-level{color:#ffe082}
+.ews-dial.l3{border-color:rgba(255,184,76,0.45);background:rgba(255,184,76,0.1)}.ews-dial.l3 .ews-level{color:#ffb84c}
+.ews-dial.l4{border-color:rgba(255,120,80,0.5);background:rgba(255,120,80,0.12)}.ews-dial.l4 .ews-level{color:#ff7850}
+.ews-dial.l5{border-color:rgba(255,95,99,0.55);background:rgba(255,95,99,0.14)}.ews-dial.l5 .ews-level{color:var(--danger);text-shadow:0 0 8px rgba(255,95,99,0.5)}
+.ews-steps{display:inline-flex;gap:2px}
+.ews-steps i{width:6px;height:6px;border-radius:1px;background:rgba(255,255,255,0.12)}
+.ews-dial.l1 .ews-steps i:nth-child(-n+1){background:var(--accent)}
+.ews-dial.l2 .ews-steps i:nth-child(-n+2){background:#ffe082}
+.ews-dial.l3 .ews-steps i:nth-child(-n+3){background:#ffb84c}
+.ews-dial.l4 .ews-steps i:nth-child(-n+4){background:#ff7850}
+.ews-dial.l5 .ews-steps i:nth-child(-n+5){background:var(--danger)}
 @keyframes pulse-conflict{0%,100%{opacity:0.5;stroke-width:1.5}50%{opacity:0.9;stroke-width:2.5}}
 .conflict-ring{animation:pulse-conflict 2.5s ease-in-out infinite}
 @keyframes dash-flow{to{stroke-dashoffset:-20}}
@@ -412,6 +455,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
 .proj-toggle{position:absolute;top:8px;left:48px;z-index:6;padding:5px 10px;border:1px solid var(--border);background:rgba(0,0,0,0.6);font-family:var(--mono);font-size:9px;cursor:pointer;color:var(--dim);letter-spacing:0.08em;text-transform:uppercase;transition:all 0.2s;backdrop-filter:blur(8px)}
 .proj-toggle:hover{border-color:var(--accent);color:var(--accent)}
 .proj-toggle.active{color:var(--bg);background:var(--accent);border-color:var(--accent)}
+body.humint-mode .map-hint{opacity:0.85;color:var(--accent)}
 /* GLOBE.GL overrides */
 #globeViz .scene-tooltip{font-family:var(--mono)!important;font-size:10px!important;background:rgba(6,10,14,0.9)!important;border:1px solid rgba(100,240,200,0.3)!important;color:var(--text)!important;padding:4px 8px!important;letter-spacing:0.05em}
 
@@ -436,6 +480,7 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
       <div class="map-region-bar" id="mapRegionBar"></div>
       <div class="map-container" id="mapContainer">
         <div id="globeViz"></div>
+        <div id="flatMapTiles"></div>
         <svg id="flatMapSvg" style="display:none;width:100%;height:100%;position:absolute;top:0;left:0;cursor:grab"></svg>
         <div class="map-loading" id="mapLoading"><div class="map-loading-card"><div class="map-loading-ring"></div><div class="map-loading-text" id="mapLoadingText">Initializing 3D Globe</div></div></div>
         <div class="map-legend" id="mapLegend"></div>
@@ -461,6 +506,10 @@ body.low-perf .ticker-wrap::-webkit-scrollbar-thumb{background:rgba(100,240,200,
           <div id="layerFilterList"></div>
         </div>
         <button class="proj-toggle" id="projToggle" onclick="toggleMapMode()">GLOBE MODE</button>
+        <div class="map-mode-toggle" id="intelModeToggle" role="group" aria-label="Map intel mode">
+          <button type="button" class="map-mode-btn active" id="situationModeBtn" onclick="setIntelMapMode('situation')">Situation</button>
+          <button type="button" class="map-mode-btn" id="humintModeBtn" onclick="setIntelMapMode('humint')">HUMINT</button>
+        </div>
         <div class="map-popup" id="mapPopup"><button class="pp-close" onclick="closePopup()">&times;</button><div class="pp-head"></div><div class="pp-text"></div><div class="pp-meta"></div></div>
       </div>
       <div class="lower" id="lowerGrid"></div>
@@ -638,10 +687,15 @@ let layerFilterBound = false;
 let lowPerfMode = localStorage.getItem('crucix_low_perf') === 'true';
 let isFlat = shouldStartFlat();
 let currentRegion = 'world';
+let intelMapMode = localStorage.getItem('crucix.intelMapMode') === 'humint' ? 'humint' : 'situation';
 let flatSvg, flatProjection, flatPath, flatG, flatZoom, flatW, flatH;
 let _globeBasePoints = [];
 let _flatMarkerRecords = [];
 let _flatZoomK = 1;
+let _humintLeaflet = null;
+let _humintMarkerLayer = null;
+const HUMINT_LAYER_IDS = new Set(['osint', 'news', 'custom']);
+const SITUATION_LAYER_BACKUP_KEY = 'crucix.layerVisibility.preHumint';
 
 const SPREAD_ZOOM_MIN = 10;
 const SPREAD_ZOOM_MAX = 14;
@@ -1062,6 +1116,24 @@ function renderRegionControls(){
   mapRegionBar.style.display = 'flex';
 }
 
+function ewsDialMarkup(){
+  const ews = D.ews || {};
+  const level = Number(ews.level);
+  const hasLevel = Number.isFinite(level) && level >= 1 && level <= 5;
+  const lvl = hasLevel ? Math.round(level) : null;
+  const cls = lvl ? `ews-dial l${lvl}` : 'ews-dial';
+  const url = ews.url || 'https://ews.kylemcdonald.net/';
+  const title = hasLevel
+    ? `Apocalypse EWS level ${lvl}/5${ews.concurrentCount!=null?` · ${ews.concurrentCount} concurrent`:''}${ews.asOf?` · as of ${ews.asOf}`:''}`
+    : (ews.error ? `EWS unavailable (${ews.error})` : 'EWS pending next sweep');
+  const levelTxt = hasLevel ? String(lvl) : '—';
+  return `<a class="${cls}" href="${url}" target="_blank" rel="noopener noreferrer" title="${title.replace(/"/g,'&quot;')}" aria-label="Apocalypse Early Warning System">
+      <span class="ews-label">EWS</span>
+      <span class="ews-level">${levelTxt}</span>
+      <span class="ews-steps" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+    </a>`;
+}
+
 function renderTopbar(){
   const mobile = isMobileLayout();
   const ts = new Date(D.meta.timestamp);
@@ -1071,6 +1143,7 @@ function renderTopbar(){
     <div class="top-left">
       <span class="brand">CRUCIX MONITOR</span>
       <span class="regime-chip"><span class="blink"></span>WARTIME STAGFLATION RISK</span>
+      ${ewsDialMarkup()}
     </div>
     ${mobile ? `<div class="top-center">${getRegionControlsMarkup()}</div>` : ''}
     <div class="top-right">
@@ -1271,7 +1344,9 @@ function setAllLayers(visible) {
 function refreshMapLayers() {
   renderMapLegend();
   updateHurricaneModelSelect();
-  if (isFlat && flatG) {
+  if (isFlat && intelMapMode === 'humint') {
+    plotHumintLeafletMarkers();
+  } else if (isFlat && flatG) {
     flatG.selectAll('g.markers, g.corridors-layer, g.hurricane-layer').remove();
     plotFlatMarkers();
   } else if (globe) {
@@ -1283,17 +1358,31 @@ function initMap(){
   bindMapLifecycleEvents();
   bindLayerFilterEvents();
   renderMapLegend();
+  syncIntelModeButtons();
+  if(intelMapMode==='humint'){
+    // Apply HUMINT layer mask without clobbering a saved Situation backup
+    for(const id of Object.keys(layerVisibility)){
+      layerVisibility[id] = HUMINT_LAYER_IDS.has(id);
+    }
+  }
   const hBtn = document.getElementById('hurricaneToggle');
   if (hBtn) hBtn.classList.toggle('off', !hurricaneOverlayVisible);
   updateHurricaneModelSelect();
   if(isFlat){
     if(globe && typeof globe.pauseAnimation === 'function') globe.pauseAnimation();
     document.getElementById('globeViz').style.display = 'none';
-    document.getElementById('flatMapSvg').style.display = 'block';
     document.getElementById('projToggle').textContent = 'GLOBE MODE';
-    document.getElementById('mapHint').textContent = 'SCROLL TO ZOOM · DRAG TO PAN';
-    if(!flatSvg) initFlatMap();
-    else { flatG.selectAll('*').remove(); drawFlatMap(); }
+    document.getElementById('mapHint').textContent = intelMapMode==='humint'
+      ? 'HUMINT · SCROLL TO STREET DETAIL · CLICK PIN TO ZOOM'
+      : 'SCROLL TO ZOOM · DRAG TO PAN';
+    if(intelMapMode==='humint'){
+      document.getElementById('flatMapSvg').style.display = 'none';
+      showHumintLeaflet(true);
+    } else {
+      document.getElementById('flatMapSvg').style.display = 'block';
+      if(!flatSvg) initFlatMap();
+      else { flatG.selectAll('*').remove(); drawFlatMap(); }
+    }
     setMapLoading(false);
     return;
   }
@@ -1503,15 +1592,16 @@ function plotMarkers(){
     });
   });
 
-  // === OSINT events from Telegram (orange) ===
-  const osintGeo=[{lat:45,lon:41,idx:0},{lat:48,lon:37,idx:1},{lat:48.5,lon:37.5,idx:2},{lat:45,lon:40.2,idx:3},{lat:50.6,lon:36.6,idx:5},{lat:48.5,lon:35,idx:6}];
-  if (layerVisible('osint')) osintGeo.forEach(o=>{
-    const post=D.tg.urgent[o.idx]; if(!post) return;
+  // === OSINT / HUMINT from geocoded Telegram (orange) ===
+  if (layerVisible('osint')) (D.humint||[]).forEach(post=>{
+    if(post.lat==null||post.lon==null) return;
+    const link = post.url ? `<br><a href="${post.url}" target="_blank" rel="noopener">Open channel</a>` : '';
     pushMapPoint(points, {
-      lat:o.lat, lng:o.lon, size:0.3, alt:0.018,
-      color:'rgba(255,184,76,0.8)', type:'osint', priority:2,
-      popHead:(post.channel||'').toUpperCase(), popMeta:`${post.views?.toLocaleString()||'?'} views`,
-      popText:cleanText(post.text?.substring(0,200)||'')
+      lat:post.lat, lng:post.lon, size:0.3, alt:0.018,
+      color: post.urgent ? 'rgba(255,184,76,0.9)' : 'rgba(255,184,76,0.55)', type:'osint', priority:2,
+      popHead:(post.channel||'').toUpperCase(),
+      popMeta:`${post.views!=null?Number(post.views).toLocaleString():'?'} views · ${post.region||'OSINT'}`,
+      popText:cleanText(post.text?.substring(0,200)||'')+link
     });
   });
 
@@ -1792,17 +1882,26 @@ function toggleMapMode(){
   const btn = document.getElementById('projToggle');
   const hint = document.getElementById('mapHint');
   btn.textContent = isFlat ? 'GLOBE MODE' : 'FLAT MODE';
-  hint.textContent = isFlat ? 'SCROLL TO ZOOM · DRAG TO PAN' : 'DRAG TO ROTATE · SCROLL TO ZOOM';
+  hint.textContent = isFlat
+    ? (intelMapMode==='humint' ? 'HUMINT · SCROLL TO STREET DETAIL · CLICK PIN TO ZOOM' : 'SCROLL TO ZOOM · DRAG TO PAN')
+    : 'DRAG TO ROTATE · SCROLL TO ZOOM';
   const globeEl = document.getElementById('globeViz');
   const flatEl = document.getElementById('flatMapSvg');
   if(isFlat){
     if(globe && typeof globe.pauseAnimation === 'function') globe.pauseAnimation();
     globeEl.style.display = 'none';
-    flatEl.style.display = 'block';
     setMapLoading(false);
-    if(!flatSvg) initFlatMap();
-    else { flatG.selectAll('*').remove(); drawFlatMap(); }
+    if(intelMapMode==='humint'){
+      flatEl.style.display = 'none';
+      showHumintLeaflet(true);
+    } else {
+      showHumintLeaflet(false);
+      flatEl.style.display = 'block';
+      if(!flatSvg) initFlatMap();
+      else { flatG.selectAll('*').remove(); drawFlatMap(); }
+    }
   } else {
+    showHumintLeaflet(false);
     flatEl.style.display = 'none';
     setMapLoading(true, 'Initializing 3D Globe');
     requestAnimationFrame(() => {
@@ -1814,11 +1913,15 @@ function toggleMapMode(){
       } catch {
         isFlat = true;
         globeEl.style.display = 'none';
-        flatEl.style.display = 'block';
         btn.textContent = 'GLOBE MODE';
         hint.textContent = '3D LOAD FAILED · FLAT MODE';
-        if(!flatSvg) initFlatMap();
-        else { flatG.selectAll('*').remove(); drawFlatMap(); }
+        if(intelMapMode==='humint'){
+          showHumintLeaflet(true);
+        } else {
+          flatEl.style.display = 'block';
+          if(!flatSvg) initFlatMap();
+          else { flatG.selectAll('*').remove(); drawFlatMap(); }
+        }
         setMapLoading(false);
       }
     });
@@ -1832,40 +1935,88 @@ function initFlatMap(){
   flatProjection = d3.geoNaturalEarth1().fitSize([flatW-20,flatH-20],{type:'Sphere'}).translate([flatW/2,flatH/2]);
   flatPath = d3.geoPath(flatProjection);
   flatG = flatSvg.append('g');
-  flatZoom = d3.zoom().scaleExtent([1,14]).on('zoom',(event)=>{
+  const maxZoom = intelMapMode === 'humint' ? 48 : 18;
+  flatZoom = d3.zoom().scaleExtent([1,maxZoom]).on('zoom',(event)=>{
     flatG.attr('transform',event.transform);
     const k=event.transform.k;
     flatG.selectAll('.marker-circle').attr('r',function(){return +this.dataset.baseR/Math.sqrt(k)});
+    flatG.selectAll('.marker-icon').attr('transform',function(){const s=1/Math.sqrt(k);return `scale(${s})`});
     flatG.selectAll('.marker-label').style('font-size',Math.max(7,9/Math.sqrt(k))+'px')
       .style('display',k>=2.5?'block':'none');
+    flatG.selectAll('.country-label').style('display',k>=1.4?'block':'none')
+      .style('font-size',Math.max(5.5,7/Math.sqrt(Math.max(k,1)))+'px');
     updateFlatMarkerSpread(k);
   });
   flatSvg.call(flatZoom);
   drawFlatMap();
 }
 
+function appendFlatIcon(g, type, color){
+  const icon = g.append('g').attr('class','marker-icon');
+  if(type==='osint'){
+    icon.append('circle').attr('r',7).attr('fill',color).attr('stroke','rgba(0,0,0,0.55)').attr('stroke-width',1);
+    icon.append('path').attr('d','M-2.2,1.8 L0,-3.2 L2.2,1.8 Z').attr('fill','#0a1014');
+  } else if(type==='conflict'){
+    icon.append('circle').attr('r',8).attr('fill','none').attr('stroke',color).attr('stroke-width',1.6).attr('class','conflict-ring marker-circle').attr('data-base-r',8);
+    icon.append('circle').attr('r',3).attr('fill',color).attr('opacity',0.85);
+  } else if(type==='custom'){
+    icon.append('circle').attr('r',6.5).attr('fill',color).attr('stroke','rgba(0,0,0,0.5)').attr('stroke-width',1);
+    icon.append('text').attr('text-anchor','middle').attr('dy','0.35em').attr('fill','#0a1014').attr('font-size','8px').attr('font-family','var(--mono)').attr('font-weight','700').text('U');
+  } else if(type==='news'){
+    icon.append('circle').attr('r',5.5).attr('fill',color).attr('stroke','rgba(0,0,0,0.45)').attr('stroke-width',0.8);
+    icon.append('circle').attr('r',1.6).attr('fill','#0a1014');
+  } else {
+    icon.append('circle').attr('class','marker-circle').attr('r',4).attr('data-base-r',4).attr('fill',color).attr('stroke','rgba(0,0,0,0.35)').attr('stroke-width',0.8);
+  }
+  return icon;
+}
+
 function drawFlatMap(){
+  if(intelMapMode==='humint'){
+    showHumintLeaflet(true);
+    return;
+  }
+  showHumintLeaflet(false);
   flatG.append('path').datum(d3.geoGraticule()()).attr('class','graticule').attr('d',flatPath);
-  fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
-    .then(r=>r.json()).then(world=>{
+  // Denser Natural Earth countries (50m) for borders/labels; fall back to 110m
+  fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json')
+    .then(r=>{ if(!r.ok) throw new Error('50m'); return r.json(); })
+    .catch(()=>fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r=>r.json()))
+    .then(world=>{
       const countries=topojson.feature(world,world.objects.countries);
       flatG.selectAll('path.land').data(countries.features).enter().append('path').attr('class','land').attr('d',flatPath);
       flatG.append('path').datum(topojson.mesh(world,world.objects.countries,(a,b)=>a!==b)).attr('class','border').attr('d',flatPath);
+      // Country labels for larger polygons
+      const labelG = flatG.append('g').attr('class','country-labels');
+      countries.features.forEach(f=>{
+        const area = flatPath.area(f);
+        if(area < 180) return;
+        const [cx,cy] = flatPath.centroid(f);
+        if(!Number.isFinite(cx)||!Number.isFinite(cy)) return;
+        const name = (f.properties?.name || '').toUpperCase();
+        if(!name || name.length > 18) return;
+        labelG.append('text').attr('class','country-label').attr('x',cx).attr('y',cy).text(name);
+      });
       plotFlatMarkers();
     });
 }
 
 function plotFlatMarkers(){
+  if(intelMapMode==='humint'){
+    plotHumintLeafletMarkers();
+    return;
+  }
   _flatMarkerRecords = [];
   const mg=flatG.append('g').attr('class','markers');
   const proj=flatProjection;
-  const addPt=(lat,lon,r,fill,stroke,onClick,priority,type)=>{
+  const addPt=(lat,lon,r,fill,stroke,onClick,priority,type,useIcon)=>{
     const origLat=lat, origLon=lon;
     const[x,y]=proj([lon,lat]);if(!x||!y)return null;
     const g=mg.append('g').attr('transform',`translate(${x},${y})`).style('cursor','pointer')
       .attr('data-priority',priority||3).attr('data-type',type||'');
     if(onClick) g.on('click',ev=>{ev.stopPropagation();onClick(ev)});
-    g.append('circle').attr('class','marker-circle').attr('r',r).attr('data-base-r',r).attr('fill',fill).attr('stroke',stroke).attr('stroke-width',0.8);
+    if(useIcon) appendFlatIcon(g, type, fill);
+    else g.append('circle').attr('class','marker-circle').attr('r',r).attr('data-base-r',r).attr('fill',fill).attr('stroke',stroke).attr('stroke-width',0.8);
     _flatMarkerRecords.push({ g, origLat, origLon, type: type || '', baseR: r });
     return g;
   };
@@ -1897,18 +2048,22 @@ function plotFlatMarkers(){
   if (layerVisible('nuke')) D.nuke.forEach((n,i)=>{const c=nukeCoords[i];if(!c)return;addPt(c.lat,c.lon,4,'rgba(255,224,130,0.7)','rgba(255,224,130,0.3)',ev=>showPopup(ev,n.site,`CPM: ${n.cpm?.toFixed(1)||'--'}`,'Radiation'),2)});
   // SDR
   if (layerVisible('sdr')) D.sdr.zones.forEach(z=>z.receivers.forEach(r=>{addPt(r.lat,r.lon,2.5,'rgba(68,204,255,0.5)','rgba(68,204,255,0.2)',ev=>showPopup(ev,'SDR',`${r.name}<br>${z.region}`,'KiwiSDR'),3,'sdr')}));
-  // OSINT
-  const osintGeo=[{lat:45,lon:41,idx:0},{lat:48,lon:37,idx:1},{lat:48.5,lon:37.5,idx:2},{lat:45,lon:40.2,idx:3},{lat:50.6,lon:36.6,idx:5},{lat:48.5,lon:35,idx:6}];
-  if (layerVisible('osint')) osintGeo.forEach(o=>{const p=D.tg.urgent[o.idx];if(!p)return;addPt(o.lat,o.lon,4,'rgba(255,184,76,0.7)','rgba(255,184,76,0.3)',ev=>showPopup(ev,(p.channel||'').toUpperCase(),cleanText(p.text?.substring(0,200)||''),`${p.views||'?'} views`),2,'osint')});
+  // OSINT / HUMINT (geocoded Telegram)
+  if (layerVisible('osint')) (D.humint||[]).forEach(p=>{
+    if(p.lat==null||p.lon==null) return;
+    const meta=`${p.views!=null?Number(p.views).toLocaleString():'?'} views · ${p.region||'OSINT'}`;
+    const link=p.url?`<br><a href="${p.url}" target="_blank" rel="noopener">Open channel</a>`:'';
+    addPt(p.lat,p.lon,5,'rgba(255,184,76,0.95)','rgba(255,184,76,0.35)',ev=>showPopup(ev,(p.channel||'').toUpperCase(),cleanText(p.text?.substring(0,220)||'')+link,meta),2,'osint',true);
+  });
   // WHO
   const whoGeo=[{lat:0.3,lon:32.6},{lat:-6.2,lon:106.8},{lat:-4.3,lon:15.3},{lat:35,lon:105},{lat:12.5,lon:105},{lat:35,lon:105},{lat:28,lon:84},{lat:24,lon:45},{lat:30,lon:70},{lat:-0.8,lon:11.6}];
   if (layerVisible('health')) D.who.slice(0,10).forEach((w,i)=>{const c=whoGeo[i];if(!c)return;addPt(c.lat,c.lon,3.5,'rgba(105,240,174,0.6)','rgba(105,240,174,0.2)',ev=>showPopup(ev,w.title,w.summary||'','WHO'),2,'health')});
   // News
-  if (layerVisible('news')) (D.news||[]).forEach(n=>{addPt(n.lat,n.lon,3,'rgba(129,212,250,0.6)','rgba(129,212,250,0.2)',ev=>showPopup(ev,n.source+' NEWS',cleanText(n.title),n.region),3,'news')});
+  if (layerVisible('news')) (D.news||[]).forEach(n=>{addPt(n.lat,n.lon,3,'rgba(129,212,250,0.85)','rgba(129,212,250,0.25)',ev=>showPopup(ev,n.source+' NEWS',cleanText(n.title),n.region),3,'news',true)});
   // Custom OSINT sources
   if (layerVisible('custom')) (D.customGeo||[]).forEach(c=>{
     const pop=formatCustomGeoPopup(c);
-    addPt(c.lat,c.lon,3,'rgba(206,147,216,0.7)','rgba(206,147,216,0.25)',ev=>showPopup(ev,pop.head,pop.text,pop.meta),3,'custom');
+    addPt(c.lat,c.lon,3,'rgba(206,147,216,0.9)','rgba(206,147,216,0.3)',ev=>showPopup(ev,pop.head,pop.text,pop.meta),3,'custom',true);
   });
   // Unified weather dots
   if (layerVisible('weather')) (D.weatherAlerts?.dots || D.noaa?.alerts || []).forEach(a=>{
@@ -1988,10 +2143,251 @@ const _origSetRegion = setRegion;
 // Override mapZoom for flat mode
 const _origMapZoom = mapZoom;
 
+const HUMINT_REGION_LATLNG = {
+  world: { center: [20, 10], zoom: 2 },
+  americas: { center: [25, -90], zoom: 3 },
+  europe: { center: [52, 15], zoom: 4 },
+  middleEast: { center: [28, 45], zoom: 4 },
+  asiaPacific: { center: [20, 110], zoom: 3 },
+  africa: { center: [2, 20], zoom: 3 },
+};
+/** Street/city detail (roads + place labels on CARTO dark_all) — matches WATCHFLOOR-style deep zoom */
+const HUMINT_STREET_ZOOM = 12;
+const HUMINT_MAX_ZOOM = 19;
+const HUMINT_DETAIL_MAX_ZOOM = 14;
+
+function syncIntelModeButtons(){
+  const sit = document.getElementById('situationModeBtn');
+  const hum = document.getElementById('humintModeBtn');
+  if(sit) sit.classList.toggle('active', intelMapMode==='situation');
+  if(hum) hum.classList.toggle('active', intelMapMode==='humint');
+  document.body.classList.toggle('humint-mode', intelMapMode==='humint');
+}
+
+function applyHumintLayerFilter(enable){
+  if(enable){
+    try { localStorage.setItem(SITUATION_LAYER_BACKUP_KEY, JSON.stringify(layerVisibility)); } catch {}
+    for(const id of Object.keys(layerVisibility)){
+      layerVisibility[id] = HUMINT_LAYER_IDS.has(id);
+    }
+  } else {
+    try {
+      const raw = localStorage.getItem(SITUATION_LAYER_BACKUP_KEY);
+      if(raw){
+        const prev = JSON.parse(raw);
+        for(const id of Object.keys(layerVisibility)){
+          if(id in prev) layerVisibility[id] = !!prev[id];
+        }
+      } else {
+        for(const id of Object.keys(layerVisibility)) layerVisibility[id] = true;
+      }
+    } catch {
+      for(const id of Object.keys(layerVisibility)) layerVisibility[id] = true;
+    }
+  }
+  if(typeof renderLayerFilterPanel === 'function') renderLayerFilterPanel();
+  if(typeof renderMapLegend === 'function') renderMapLegend();
+}
+
+function setIntelMapMode(mode){
+  const next = mode === 'humint' ? 'humint' : 'situation';
+  if(next === intelMapMode){
+    syncIntelModeButtons();
+    return;
+  }
+  const prev = intelMapMode;
+  intelMapMode = next;
+  localStorage.setItem('crucix.intelMapMode', intelMapMode);
+  if(prev!=='humint' && next==='humint') applyHumintLayerFilter(true);
+  if(prev==='humint' && next!=='humint') applyHumintLayerFilter(false);
+  syncIntelModeButtons();
+
+  // HUMINT uses flat + deep-zoom Leaflet tiles
+  if(intelMapMode==='humint' && !isFlat){
+    toggleMapMode();
+    return;
+  }
+  const hint = document.getElementById('mapHint');
+  if(hint && isFlat){
+    hint.textContent = intelMapMode==='humint'
+      ? 'HUMINT · SCROLL TO STREET DETAIL · CLICK PIN TO ZOOM'
+      : 'SCROLL TO ZOOM · DRAG TO PAN';
+  }
+  if(isFlat){
+    if(flatG) flatG.selectAll('*').remove();
+    if(intelMapMode==='humint'){
+      showHumintLeaflet(true);
+    } else {
+      showHumintLeaflet(false);
+      if(flatSvg) drawFlatMap();
+      else initFlatMap();
+    }
+  } else if(globe){
+    refreshMapLayers();
+  }
+}
+
+function cartoDarkTileUrl(){
+  const cartoKey = window.__CRUCIX_MAPS__?.cartoApiKey || D.weatherPanel?.cartoApiKey || null;
+  return cartoKey
+    ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`
+    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+}
+
+function showHumintLeaflet(show){
+  const tiles = document.getElementById('flatMapTiles');
+  const svg = document.getElementById('flatMapSvg');
+  if(!tiles) return;
+  if(!show){
+    tiles.style.display = 'none';
+    if(svg && isFlat) svg.style.display = 'block';
+    return;
+  }
+  if(!window.L?.map){
+    console.warn('[Crucix] Leaflet unavailable — HUMINT falls back to flat SVG');
+    tiles.style.display = 'none';
+    if(svg) svg.style.display = 'block';
+    if(flatG){ flatG.selectAll('*').remove(); }
+    // Force situation-style draw without flipping mode permanently
+    flatG?.append('path').datum(d3.geoGraticule()()).attr('class','graticule').attr('d',flatPath);
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json')
+      .then(r=>r.json()).then(world=>{
+        const countries=topojson.feature(world,world.objects.countries);
+        flatG.selectAll('path.land').data(countries.features).enter().append('path').attr('class','land').attr('d',flatPath);
+        flatG.append('path').datum(topojson.mesh(world,world.objects.countries,(a,b)=>a!==b)).attr('class','border').attr('d',flatPath);
+        // Temporarily plot humint pins on SVG
+        const saved = intelMapMode;
+        intelMapMode = 'situation';
+        plotFlatMarkers();
+        intelMapMode = saved;
+      }).catch(()=>{});
+    return;
+  }
+  tiles.style.display = 'block';
+  if(svg) svg.style.display = 'none';
+  if(!_humintLeaflet){
+    _humintLeaflet = window.L.map(tiles, {
+      zoomControl: false,
+      attributionControl: false,
+      worldCopyJump: true,
+      minZoom: 2,
+      maxZoom: HUMINT_MAX_ZOOM,
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+      wheelPxPerZoomLevel: 80,
+      scrollWheelZoom: true,
+      doubleClickZoom: true,
+      boxZoom: true,
+    }).setView([20, 10], 2);
+    // dark_all includes roads + city/admin labels at z≥10 — required for WATCHFLOOR-level detail
+    window.L.tileLayer(cartoDarkTileUrl(), {
+      maxZoom: HUMINT_MAX_ZOOM,
+      maxNativeZoom: 19,
+      subdomains: 'abcd',
+      updateWhenIdle: false,
+    }).addTo(_humintLeaflet);
+    window.L.control.zoom({ position: 'bottomright' }).addTo(_humintLeaflet);
+    _humintMarkerLayer = window.L.layerGroup().addTo(_humintLeaflet);
+    _humintLeaflet.on('click', () => closePopup());
+  }
+  setTimeout(() => { try { _humintLeaflet.invalidateSize(); } catch {} }, 50);
+  plotHumintLeafletMarkers();
+  fitHumintLeafletView();
+}
+
+function humintDivIcon(kind){
+  const cls = kind === 'cluster' ? 'cluster' : (kind || 'osint');
+  if(cls === 'cluster'){
+    return window.L.divIcon({
+      className: 'humint-pin',
+      html: `<div class="humint-pin-inner cluster">+</div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+  }
+  return window.L.divIcon({
+    className: 'humint-pin',
+    html: `<div class="humint-teardrop ${cls}" aria-hidden="true"></div>`,
+    iconSize: [18, 24],
+    iconAnchor: [9, 24],
+  });
+}
+
+function flyHumintToDetail(lat, lon){
+  if(!_humintLeaflet) return;
+  const target = Math.max(_humintLeaflet.getZoom(), HUMINT_STREET_ZOOM);
+  _humintLeaflet.flyTo([+lat, +lon], Math.min(target, HUMINT_MAX_ZOOM), { duration: 0.65 });
+}
+
+function fitHumintLeafletView(){
+  if(!_humintLeaflet || !_humintMarkerLayer) return;
+  const latLngs = [];
+  _humintMarkerLayer.eachLayer(layer => {
+    if(layer.getLatLng) latLngs.push(layer.getLatLng());
+  });
+  if(latLngs.length === 0){
+    const region = HUMINT_REGION_LATLNG[currentRegion] || HUMINT_REGION_LATLNG.world;
+    _humintLeaflet.setView(region.center, region.zoom, { animate: false });
+    return;
+  }
+  if(latLngs.length === 1){
+    _humintLeaflet.setView(latLngs[0], HUMINT_STREET_ZOOM, { animate: false });
+    return;
+  }
+  const bounds = window.L.latLngBounds(latLngs);
+  _humintLeaflet.fitBounds(bounds.pad(0.25), {
+    animate: false,
+    maxZoom: HUMINT_DETAIL_MAX_ZOOM,
+  });
+}
+
+function plotHumintLeafletMarkers(){
+  if(!_humintLeaflet || !_humintMarkerLayer) return;
+  _humintMarkerLayer.clearLayers();
+  const add = (lat, lon, kind, head, text, meta) => {
+    if(lat==null||lon==null||!Number.isFinite(+lat)||!Number.isFinite(+lon)) return;
+    const m = window.L.marker([+lat, +lon], { icon: humintDivIcon(kind), riseOnHover: true });
+    m.on('click', (ev) => {
+      if(ev.originalEvent) ev.originalEvent.stopPropagation();
+      // Deep-zoom to street/city detail on pin select (roads + labels appear ~z12+)
+      flyHumintToDetail(lat, lon);
+      showPopup(ev.originalEvent, head, text, meta, lat, lon);
+    });
+    m.on('dblclick', (ev) => {
+      if(ev.originalEvent){
+        ev.originalEvent.stopPropagation();
+        ev.originalEvent.preventDefault();
+      }
+      if(!_humintLeaflet) return;
+      _humintLeaflet.setView([+lat, +lon], Math.min(HUMINT_STREET_ZOOM + 2, HUMINT_MAX_ZOOM), { animate: true });
+    });
+    _humintMarkerLayer.addLayer(m);
+  };
+
+  if(layerVisible('osint')) (D.humint||[]).forEach(p=>{
+    const link=p.url?`<br><a href="${p.url}" target="_blank" rel="noopener">Open channel</a>`:'';
+    add(p.lat, p.lon, 'osint', (p.channel||'').toUpperCase(),
+      cleanText(p.text?.substring(0,240)||'')+link,
+      `${p.views!=null?Number(p.views).toLocaleString():'?'} views · ${p.region||'OSINT'}`);
+  });
+  if(layerVisible('news')) (D.news||[]).forEach(n=>{
+    add(n.lat, n.lon, 'news', n.source+' NEWS', cleanText(n.title), n.region);
+  });
+  if(layerVisible('custom')) (D.customGeo||[]).forEach(c=>{
+    const pop=formatCustomGeoPopup(c);
+    add(c.lat, c.lon, 'custom', pop.head, pop.text, pop.meta);
+  });
+}
+
 function setRegion(r){
   currentRegion = r;
   document.querySelectorAll('.region-btn').forEach(b=>b.classList.toggle('active',b.dataset.region===r));
   closePopup();
+  if(isFlat && intelMapMode==='humint' && _humintLeaflet){
+    const region = HUMINT_REGION_LATLNG[r] || HUMINT_REGION_LATLNG.world;
+    _humintLeaflet.setView(region.center, region.zoom, { animate: true });
+    return;
+  }
   if(isFlat && flatSvg && flatZoom){
     if(r==='world'){flatSvg.transition().duration(750).call(flatZoom.transform,d3.zoomIdentity);return;}
     const bounds=flatRegionBounds[r];
@@ -2007,7 +2403,12 @@ function setRegion(r){
 }
 
 function mapZoom(factor){
-  if(isFlat && flatSvg && flatZoom){
+  if(isFlat && intelMapMode==='humint' && _humintLeaflet){
+    // Half-step toward street detail (CARTO dark_all labels/roads sharpen ~z10–14)
+    const step = factor > 1 ? 0.75 : -0.75;
+    const next = Math.max(2, Math.min(HUMINT_MAX_ZOOM, _humintLeaflet.getZoom() + step));
+    _humintLeaflet.setZoom(next);
+  } else if(isFlat && flatSvg && flatZoom){
     flatSvg.transition().duration(300).call(flatZoom.scaleBy,factor);
   } else if(globe){
     const pov=globe.pointOfView();
