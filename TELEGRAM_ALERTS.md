@@ -126,6 +126,7 @@ Everything the Telegram integration provides in this fork:
 | Feature | Description | Requires LLM? |
 | ------- | ----------- | ------------- |
 | **Reactive tiered alerts** | FLASH / PRIORITY / ROUTINE after each sweep when delta signals qualify | No (LLM enhances when configured) |
+| **Apocalypse EWS FLASH** | On any Kyle McDonald EWS `emergencyLevel` 1–5 change; bypasses delta dedup + tier rate limits (still respects `/mute`) | No |
 | **Rule-based fallback** | Deterministic tier logic when LLM is off or errors | No |
 | **Semantic dedup** | SHA-256 content hash; suppresses near-duplicate alerts for 4 hours | No |
 | **Per-tier rate limits** | Cooldown + max alerts per hour per tier | No |
@@ -153,6 +154,8 @@ Everything the Telegram integration provides in this fork:
 | `TELEGRAM_DAILY_BRIEF_TIME` | No | disabled | Daily digest time `HH:MM` (24h) |
 | `TELEGRAM_DAILY_BRIEF_TZ` | No | server TZ | IANA timezone for daily brief (e.g. `America/New_York`) |
 | `TELEGRAM_DAILY_BRIEF_RESPECT_MUTE` | No | `false` | If `true`, `/mute` also silences the daily brief |
+| `EWS_ENABLED` | No | enabled | Set `0` to disable Apocalypse EWS polling / FLASH |
+| `EWS_SNAPSHOT_URL` | No | public R2 snapshot | Kyle McDonald `dashboard.json` (only `current` + composite stored) |
 | `REFRESH_INTERVAL_MINUTES` | No | `15` | Sweep cadence (drives alert frequency) |
 | `LLM_PROVIDER` / `LLM_API_KEY` | No | disabled | Smarter tier decisions when set; not required for alerts |
 
@@ -263,7 +266,7 @@ The pipeline lives in [server.mjs](server.mjs) (sweep loop) and [lib/alerts/tele
 
 | Tier         | Emoji  | Cooldown | Cap/hr | Fires when                                                                           |
 | ------------ | ------ | -------- | ------ | ------------------------------------------------------------------------------------ |
-| **FLASH**    | red    | 5 min    | 6      | Nuclear/radiological anomaly, or >=2 critical signals across market + conflict       |
+| **FLASH**    | red    | 5 min    | 6      | Nuclear/radiological anomaly, or >=2 critical signals across market + conflict. **Also:** Apocalypse EWS level change (dedicated path, ignores cooldown). |
 | **PRIORITY** | yellow | 30 min   | 4      | >=2 high/critical signals escalating in the same direction, or OSINT surge (>=5 new) |
 | **ROUTINE**  | blue   | 60 min   | 2      | Any single critical signal, or >=3 high-severity signals                             |
 

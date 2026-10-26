@@ -37,6 +37,7 @@ import {
   saveDashboardSnapshot,
   applyDashboardSnapshot,
 } from './lib/config/dashboard-snapshot.mjs';
+import { loadEwsState, saveEwsState } from './lib/ews/state.mjs';
 import { testSymbol, collect as collectYFinance } from './apis/sources/yfinance.mjs';
 import { collect as collectMarketNews } from './apis/sources/market-news.mjs';
 import { collect as collectCustomFeeds, testRssFeed, testCustomSource } from './apis/sources/custom-feeds.mjs';
@@ -693,6 +694,24 @@ async function runSweepCycle() {
     // 3. Synthesize into dashboard format
     console.log('[Crucix] Synthesizing dashboard data...');
     const synthesized = await synthesize(rawData);
+
+    // 3b. Apocalypse EWS — FLASH Telegram on any emergencyLevel change
+    if (synthesized.ews?.level != null) {
+      const prev = loadEwsState();
+      const prevLevel = prev?.level ?? null;
+      if (prevLevel != null && prevLevel !== synthesized.ews.level) {
+        if (telegramAlerter.isConfigured) {
+          telegramAlerter.sendEwsFlash(prevLevel, synthesized.ews).catch(err => {
+            console.error('[Crucix] EWS Telegram FLASH error:', err.message);
+          });
+        } else {
+          console.log(`[Crucix] EWS level ${prevLevel}→${synthesized.ews.level} (Telegram not configured)`);
+        }
+      } else if (prevLevel == null) {
+        console.log(`[Crucix] EWS baseline level ${synthesized.ews.level} (no FLASH on first observe)`);
+      }
+      saveEwsState({ level: synthesized.ews.level, asOf: synthesized.ews.asOf });
+    }
 
     // 4. Delta computation + memory
     const priorRuns = memory.getRunHistory().map(r => r.data);

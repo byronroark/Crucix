@@ -147,6 +147,17 @@ export default {
     apiKey: process.env.GOOGLE_GEOCODING_API_KEY || null,
   },
 
+  // === Apocalypse Early Warning System (Kyle McDonald public snapshot) ===
+  // Polls emergencyLevel 1–5 each sweep. On any level change, Telegram FLASH
+  // fires via TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (bypasses delta dedup).
+  // Only current + lightweight composite signals are stored — never liveAircraft.
+  ews: {
+    enabled: process.env.EWS_ENABLED !== '0',
+    snapshotUrl: process.env.EWS_SNAPSHOT_URL
+      || 'https://pub-49bb6a6f314c47be9b481c25e5f6ca9e.r2.dev/dashboard.json',
+    stateFile: process.env.EWS_STATE_FILE || 'runs/config/ews-state.json',
+  },
+
   // Multi-pool Intelligence Analysis — built-in OSINT + optional custom analyzed RSS
   intelAnalysis: {
     enabled: true,

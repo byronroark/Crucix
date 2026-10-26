@@ -297,7 +297,7 @@ Prints the resolved coordinates and a config-ready snippet. Results go into the 
 | Layer            | Color                | Source                                  |
 | ---------------- | -------------------- | --------------------------------------- |
 | World News       | `#81d4fa` light blue | Built-in RSS (`D.news`)                 |
-| OSINT Event      | `#ffb84c` orange     | Telegram urgent (hardcoded geo offsets) |
+| OSINT Event      | `#ffb84c` orange     | Geocoded Telegram posts (`D.humint` via `lib/geocode/`) |
 | **Custom OSINT** | `**#ce93d8` purple** | `**D.customGeo` from your sources**     |
 
 
